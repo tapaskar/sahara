@@ -1,0 +1,33 @@
+[project]
+name = "sahara"
+version = "0.1.0"
+description = "Sahara week-one pilot: a voice agent that phones a parent every morning in their language, screens unknown callers, and briefs their child on WhatsApp."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "websockets>=13",
+  "httpx",
+  "numpy",
+  "pydantic>=2",
+  "sqlmodel",
+  "apscheduler>=3.10,<4",
+  "google-genai>=1.30",
+  "python-multipart",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-asyncio"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sahara*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

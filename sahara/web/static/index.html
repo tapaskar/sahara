@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sahara</title>
+<style>
+  :root { --bg:#fbf7f0; --panel:#fff; --line:#e6ded2; --ink:#222; --dim:#7a7368; --accent:#c2410c; --ok:#15803d; --warn:#b45309; --bad:#b91c1c }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  header { display:flex; align-items:baseline; gap:14px; padding:16px 24px; border-bottom:1px solid var(--line); background:var(--panel) }
+  header h1 { margin:0; font-size:22px } header h1 span { color:var(--accent) } header small { color:var(--dim) } #status { margin-left:auto; color:var(--dim); font-size:13px }
+  main { display:grid; grid-template-columns:360px 1fr; min-height:calc(100vh - 60px) }
+  aside { border-right:1px solid var(--line); padding:18px; background:var(--panel) } section { padding:18px 24px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:14px }
+  .card h2 { margin:0 0 8px; font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim) }
+  input, select, textarea { width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:4px 0; font:inherit; background:#fff }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 14px; font-weight:600; cursor:pointer; margin:6px 6px 0 0 } button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line) } button:disabled { opacity:.5 }
+  .row { display:flex; gap:14px; flex-wrap:wrap } .row .card { flex:1 1 160px } .stat { font-size:26px; font-weight:700 } .stat small { font-size:12px; color:var(--dim); font-weight:400; margin-left:6px }
+  table { width:100%; border-collapse:collapse; font-size:14px } td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top } th { color:var(--dim); font-weight:500 }
+  .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; color:#fff } .completed { background:var(--ok) } .no_answer, .failed { background:var(--bad) } .ringing, .in_progress, .scheduled { background:var(--warn) }
+  .turn { margin:4px 0 } .turn b { color:var(--accent) } .parent b { color:var(--ok) } .msg { white-space:pre-wrap; background:#f3efe7; border-radius:8px; padding:10px; margin:8px 0 }
+  .dim { color:var(--dim) } a { color:var(--accent) }
+</style>
+</head>
+<body>
+<header><h1>SAHA<span>RA</span></h1><small>the morning call, the week-one pilot desk</small><span id="status"></span></header>
+<main>
+  <aside>
+    <div class="card"><h2>Add a family</h2>
+      <input id="f_child" placeholder="Child's name"><input id="f_phone" placeholder="Child's WhatsApp, +91…">
+      <select id="f_lang"><option value="en">Summary in English</option><option value="hi-IN">Summary in Hindi</option></select>
+      <button onclick="addFamily()">Add family</button></div>
+    <div class="card"><h2>Add a parent</h2>
+      <select id="p_family"></select><input id="p_name" placeholder="Parent's name"><input id="p_phone" placeholder="Parent's mobile, +91…">
+      <select id="p_lang"></select><input id="p_time" value="08:30" placeholder="Call time HH:MM (IST)">
+      <textarea id="p_meds" rows="2" placeholder='Medicines, one per line: name, when'></textarea>
+      <textarea id="p_notes" rows="2" placeholder="Context for the agent: town, habits, what they like to talk about"></textarea>
+      <label><input type="checkbox" id="p_consent" style="width:auto"> Parent has given recorded consent to daily calls</label>
+      <button onclick="addParent()">Add parent</button></div>
+    <div class="card"><h2>Operator token</h2><input id="token" placeholder="X-Sahara-Token (if set)" onchange="saveToken()"></div>
+  </aside>
+  <section>
+    <div class="row" id="metrics"></div>
+    <div class="card"><h2>Parents</h2><table id="parents"></table></div>
+    <div id="detail"></div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s); let health = null, parents = [];
+function saveToken(){ try{ localStorage.setItem('sahara_token', $('#token').value) }catch(e){} }
+function token(){ try{ return localStorage.getItem('sahara_token') || '' }catch(e){ return '' } }
+async function api(path, opts={}) { const r = await fetch('/api'+path, {headers:{'content-type':'application/json','x-sahara-token':token()}, ...opts}); const j = await r.json(); if(!r.ok) throw new Error(j.detail||j.error||r.statusText); return j; }
+async function addFamily(){ try{ await api('/families',{method:'POST',body:JSON.stringify({child_name:$('#f_child').value,child_phone:$('#f_phone').value,child_language:$('#f_lang').value})}); load(); }catch(e){alert(e.message)} }
+async function addParent(){ const meds = $('#p_meds').value.split('\n').filter(Boolean).map(l=>{const [name,when]=l.split(',');return {name:name.trim(),when:(when||'daily').trim()}});
+  try{ await api('/parents',{method:'POST',body:JSON.stringify({family_id:+$('#p_family').value,name:$('#p_name').value,phone:$('#p_phone').value,language:$('#p_lang').value,call_time:$('#p_time').value,consent:$('#p_consent').checked,medications:meds,notes:$('#p_notes').value})}); load(); }catch(e){alert(e.message)} }
+async function callNow(id){ try{ await api(`/parents/${id}/call-now`,{method:'POST'}); load(); }catch(e){alert(e.message)} }
+async function simulate(id){ const lines = prompt('Parent lines, separated by |', 'हाँ बेटा, नींद ठीक आई | दवा ले ली | घुटने में दर्द है | कोई फोन आया था OTP मांग रहा था'); if(!lines) return;
+  try{ const c = await api(`/parents/${id}/simulate`,{method:'POST',body:JSON.stringify({parent_lines:lines.split('|').map(s=>s.trim())})}); load(); showCall(c.id); }catch(e){alert(e.message)} }
+async function showCall(id){ const c = await api(`/calls/${id}`); const s = c.summary;
+  $('#detail').innerHTML = `<div class="card"><h2>Call ${c.id} · ${c.kind} · <span class="tag ${c.status}">${c.status}</span> · ${c.duration_s}s · ${c.engine}</h2>
+    ${s ? `<div class="msg">${(s.child_message||JSON.stringify(s)).replace(/</g,'&lt;')}</div><p class="dim">mood ${s.mood||'-'} · meds ${s.medications_taken===null?'n/a':s.medications_taken} · engagement ${s.engagement??'-'} · follow-up ${s.follow_up?('yes: '+s.follow_up_reason):'no'}</p>` : ''}
+    ${c.obs.length ? '<b>Logged</b><ul>'+c.obs.map(o=>`<li>[${o.severity}] ${o.kind}: ${o.detail}</li>`).join('')+'</ul>' : ''}
+    <b>Transcript</b>${c.turns.map(t=>`<div class="turn ${t.who}"><b>${t.who}</b>: ${t.text.replace(/</g,'&lt;')}</div>`).join('')}
+    ${c.alerts.length ? '<b>Sent to the child</b><ul>'+c.alerts.map(a=>`<li>[${a.kind}/${a.channel}${a.delivered?'':' · NOT delivered'}] ${a.message.replace(/</g,'&lt;')}</li>`).join('')+'</ul>':''}</div>`; }
+async function load(){
+  health = await api('/health'); $('#status').textContent = `${health.offline?'offline mode':'live'} · engine ${health.engine} · ${health.telephony} · WhatsApp ${health.whatsapp}`;
+  $('#p_lang').innerHTML = Object.entries(health.languages).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  const m = await api('/metrics'); $('#metrics').innerHTML = [['Answer rate', m.answer_rate==null?'–':Math.round(m.answer_rate*100)+'%', `${m.answered}/${m.calls} calls, 7 days`],['Avg call', m.avg_duration_s==null?'–':m.avg_duration_s+'s',''],['Engagement', m.avg_engagement??'–','0 to 1'],['Parent-led talk', m.parent_initiated_share==null?'–':Math.round(m.parent_initiated_share*100)+'%','calls with unprompted topics'],['Follow-ups', m.follow_ups, `${m.scam_alerts} scam alerts`]].map(([t,v,s])=>`<div class="card"><h2>${t}</h2><div class="stat">${v}<small>${s}</small></div></div>`).join('');
+  parents = await api('/parents'); const fams = {}; parents.forEach(p=>fams[p.family_id]=p.child_name);
+  const famOpts = await api('/parents').then(()=>Object.entries(fams)); $('#p_family').innerHTML = famOpts.map(([id,n])=>`<option value="${id}">${n} (family ${id})</option>`).join('') || '<option value="">add a family first</option>';
+  $('#parents').innerHTML = '<tr><th>Parent</th><th>Language</th><th>Call time</th><th>Consent</th><th>Last call</th><th></th></tr>' + parents.map(p=>`<tr><td><b>${p.name}</b><div class="dim">${p.phone} · child ${p.child_name}</div></td><td>${health.languages[p.language]||p.language}</td><td>${p.call_time}</td><td>${p.consent?'yes':'<span style="color:var(--bad)">no</span>'}</td>
+    <td>${p.last_call?`<span class="tag ${p.last_call.status}">${p.last_call.status}</span> <a href="#" onclick="showCall(${p.last_call.id});return false">#${p.last_call.id}</a> <span class="dim">${p.last_call.duration_s}s</span>`:'<span class="dim">never</span>'}</td>
+    <td><button ${health.offline||!p.consent?'disabled':''} onclick="callNow(${p.id})">Call now</button><button class="ghost" onclick="simulate(${p.id})">Simulate</button></td></tr>`).join('');
+}
+$('#token').value = token(); load();
+</script>
+</body>
+</html>
