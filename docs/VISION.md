@@ -118,7 +118,7 @@ The repo's "Twilio or Plivo" symmetry is false in India.
 
 | Stage | Choice | Trigger to move |
 |---|---|---|
-| Pilot (weeks 1–8) | **Plivo domestic** (₹0.38/min, Indian DID, code already written). **Company registration + GST is the true week-1 blocker** — Plivo rents Indian numbers only to registered entities; start incorporation immediately, not in week 2 | — |
+| Pilot (weeks 1–8) | **Plivo domestic** (₹0.38/min, Indian DID, code already written). Plivo rents Indian numbers only to India-registered businesses, but accepts **any one of GST certificate, Certificate of Incorporation, or Udyam (MSME) certificate** — so **incorporation is not on the critical path**: a sole proprietorship with a free, instant Udyam registration (Aadhaar + PAN, ~15 min) clears KYC, and 080/022 DIDs are approved in ~5 min. DLT registration and TRAI consent are the real gates | — |
 | Pilot hedge (week 3–4) | **Exotel AgentStream adapter** (~1 day against the existing bridge; protocol near-identical): mobile-series CLI A/B on answer rate, second domestic route, strongest DLT/UCC compliance buffer | — |
 | Growth (100–5k parents) | **Exotel primary, Plivo secondary** — at this stage a telco AI-spam filter mislabeling Sahara's CLI is the existential risk; Exotel's compliance machinery is worth the ~₹20–30/parent-month premium | Sustained volume + first UCC scare |
 | Scale (≥5k parents) | **Direct SIP trunks (Airtel + one of Jio/Tata) into self-hosted Jambonz or LiveKit SIP**, Exotel as overflow. Same operator relationship the hub needs (VoLTE M2M SIMs, elder plan) — start the conversation ~6 months before the hub pilot regardless of cost math | CPaaS bill > ~₹5L/month **and** a voice-infra engineer hired |
@@ -229,7 +229,7 @@ groundwork items exist solely to unblock the next.
 
 | # | Item | Track |
 |---|---|---|
-| 0 | **Incorporate + GST now** (Plivo DID blocker); DLT registration; recorded parent consent artifact (two-audience: parent enumerated sharing + safety carve-outs; child "alerts-not-diagnosis" terms) | Stack |
+| 0 | **Udyam (MSME) registration as a sole proprietorship** — free, instant, Aadhaar + PAN; clears Plivo India KYC without incorporating. Then **DLT Principal Entity registration** (the real gate) and the recorded parent consent artifact (two-audience: parent enumerated sharing + safety carve-outs; child "alerts-not-diagnosis" terms). Incorporate when revenue or investors require it, not to place the first call | Stack |
 | 1 | Plivo domestic primary; Exotel adapter by week 3–4 (CLI A/B, second route); forwarding-health metric; bridge-placement latency test (asia-south1 vs us-central1) | Stack |
 | 2 | AI Studio key week 1 → **Vertex migration before first paid month**; Sarvam cascade warm at ~10%; elderly-speech benchmark set from every call | Stack |
 | 3 | **Emergency escalation protocol v1** + mandatory second contact + monthly drill + deterministic no-cloud path + WhatsApp-and-SMS alerts | Health |
@@ -322,6 +322,7 @@ certification; security posture at health-data grade.
 | 3 | July 2026 TRAI clarification on designated series for non-BFSI service calls | Verify with counsel | Before growth stage |
 | 4 | USSD CCF activation status (suspended Apr 2024 — restored?) + per-operator forwarding runbooks and forwarded-leg tariffs | Verify during onboarding design | Pilot week 1 |
 | 5 | Current Plivo/Exotel list prices, Exotel platform minimums, mobile-DID availability | Quotes | Pilot week 1 |
+| 5b | Plivo's first-application formality (authorized-signatory signature + visible company seal) against a proprietorship's Udyam certificate — documented as accepted, unverified in practice; ~5 min approval means fast feedback. Exotel's sole-proprietor KYC (proprietor PAN + address proof + GST **or** MSME certificate) is the equivalent fallback | Submit and see | Pilot week 1 |
 | 6 | Sarvam endpoint shapes vs docs.sarvam.ai (already flagged in README) | Verify before cascade carries live traffic | Pilot week 2 |
 | 7 | Care managers: partner (Emoha/Samarth-class) vs build | Decision memo after pilot ops experience | Phase 2 entry |
 | 8 | Screener disclosure: spoken AI label on screener answers to third-party callers (IT Rules 2026) — script it | Persona work | Pilot week 1 |
