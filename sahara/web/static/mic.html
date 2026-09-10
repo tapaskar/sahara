@@ -201,8 +201,8 @@ async function startCall() {
         status(engineName === 'null'
           ? 'Ended with no audio. The engine is "null" (SAHARA_OFFLINE=1), so there was nothing to say.'
           : `Ended before Sahara spoke — the ${engineName} engine did not start. Check the server log: `
-            + 'usually GOOGLE_API_KEY / GEMINI_API_KEY is missing or wrong, or the model name is unavailable '
-            + 'to your project.', 'bad');
+            + 'check /api/health for gemini_auth. GOOGLE_API_KEY is the variable that selects the '
+            + 'API-key path; GEMINI_API_KEY alone routes to Vertex and needs gcloud credentials.', 'bad');
         log(`socket closed with no audio (code ${ev.code})`);
       } else {
         status('Call ended.', '');

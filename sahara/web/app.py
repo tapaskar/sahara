@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from sqlmodel import select
 from .. import __version__, calls, config, scheduler
 from ..db import init_db, session
 from ..engine import make_engine
+from ..gemini import using_vertex
 from ..models import Alert, Call, Family, Parent, utcnow
 from ..persona import LANGUAGES
 from ..telephony import make_telephony
@@ -53,7 +55,21 @@ def mic():
 def health():
     return {"ok": True, "version": __version__, "offline": config.OFFLINE, "engine": config.VOICE_ENGINE,
             "telephony": config.TELEPHONY, "whatsapp": config.WHATSAPP, "live_model": config.GEMINI_LIVE_MODEL,
-            "languages": LANGUAGES}
+            "languages": LANGUAGES, "gemini_auth": _gemini_auth()}
+
+
+def _gemini_auth() -> str:
+    """How Gemini will authenticate, named not valued. Note that GEMINI_API_KEY alone
+    routes to Vertex, because using_vertex() only looks at GOOGLE_API_KEY."""
+    if config.OFFLINE:
+        return "offline (null engine)"
+    if not using_vertex():
+        return "api_key (GOOGLE_API_KEY)"
+    have_adc = bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")) or \
+        (Path.home() / ".config/gcloud/application_default_credentials.json").exists()
+    if have_adc:
+        return f"vertex (project={config.GOOGLE_CLOUD_PROJECT or 'unset'})"
+    return "NONE — no GOOGLE_API_KEY and no application default credentials"
 
 
 # ------------------------------------------------------------- families ---
