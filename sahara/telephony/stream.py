@@ -68,7 +68,7 @@ async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
                     await ws.send_json(provider.clear_frame(info))
                 elif ev.type in ("transcript_in", "transcript_out"):
                     await on_transcript("parent" if ev.type == "transcript_in" else "sahara", ev.data,
-                                        ev.meta.get("final", True))
+                                        ev.meta.get("final", True), ev.meta)
                 elif ev.type == "tool_call":
                     result = await on_tool_call(ev.data)
                     await engine.send_tool_result(ev.data["id"], ev.data["name"], result or {"ok": True})

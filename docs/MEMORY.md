@@ -110,8 +110,11 @@ correct_memory(subject, correction)            # parent says we had it wrong
 forget(subject, reason)                        # "don't remember that" — parent-initiated
 ```
 
-`log_observation` stays exactly as it is and keeps feeding the call summary; health facts additionally
-open or touch a `HEALTH_THREAD` node so symptoms become trackable across days rather than per-call.
+`log_observation` stays exactly as it is and keeps feeding the call summary. Two deterministic
+fan-outs derive from it server-side — these are tool writes, not transcript parsing: a `health`
+observation opens or touches a `HEALTH_THREAD` (symptoms become trackable across days), and a `need`
+observation opens an `OPEN_LOOP` (tomorrow's call follows it up). The first real pilot call proved the
+need for this: the model logged "wants to see a doctor" as an observation but called no memory tool.
 
 **Never** write memory from a post-call parse of the transcript. If the model did not think it worth a
 tool call, it is not a fact.

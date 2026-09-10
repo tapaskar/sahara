@@ -18,6 +18,16 @@ from .base import VoiceEngine
 log = logging.getLogger("sahara.engine.gemini_live")
 
 
+def transcription_languages(language: str) -> list[str]:
+    """The input-transcription hint. Two corrections that matter:
+    - od-IN is Sarvam's code for Odia; BCP-47 (and Gemini) want or-IN. An unrecognized
+      code risks silently falling back to full auto-detect — the exact drift being fixed.
+    - Always co-hint en-IN: elders code-switch into English constantly, and a lone
+      Hindi hint would push English words into Devanagari mis-transcription."""
+    code = {"od-IN": "or-IN"}.get(language, language)
+    return [code] if code == "en-IN" else [code, "en-IN"]
+
+
 class GeminiLiveEngine(VoiceEngine):
     name = "gemini_live"
     out_hz = 24000
@@ -35,16 +45,22 @@ class GeminiLiveEngine(VoiceEngine):
             tools=[types.Tool(function_declarations=[types.FunctionDeclaration(**t) for t in tools])] if tools else None,
             speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.GEMINI_VOICE))),
-            # Pin the parent's language. Left to auto-detect, one live call came back as
-            # Portuguese ("eu ja tomei remedio" for a Hindi answer about medicine) — which
-            # ruins the transcript as the pilot's record of how ASR handles elderly speech.
-            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=[language]),
-            output_audio_transcription=types.AudioTranscriptionConfig(language_codes=[language]),
+            # The language hint is a prior, not a constraint (the SDK's own word is
+            # "hints"): left to auto-detect, one live Hindi call transcribed as Portuguese.
+            # VERBATIM is pinned because SMART's disfluency removal would erase exactly
+            # the elderly-speech phenomena the pilot exists to measure.
+            input_audio_transcription=types.AudioTranscriptionConfig(
+                language_codes=transcription_languages(language),
+                mode=types.AudioTranscriptionConfigMode.VERBATIM),
+            output_audio_transcription=types.AudioTranscriptionConfig(
+                language_codes=transcription_languages(language)[:1]),
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,   # elders pause
                     silence_duration_ms=900, prefix_padding_ms=200)),
         )
+        log.info("live transcription hint: in=%s out=%s mode=VERBATIM",
+                 transcription_languages(language), transcription_languages(language)[:1])
         self._cm = live_client().aio.live.connect(model=config.GEMINI_LIVE_MODEL, config=cfg)
         self._session = await self._cm.__aenter__()
         self._rx = asyncio.create_task(self._receive())
@@ -77,7 +93,8 @@ class GeminiLiveEngine(VoiceEngine):
                     if sc is not None:
                         if sc.input_transcription and sc.input_transcription.text:
                             self.emit("transcript_in", sc.input_transcription.text,
-                                      final=bool(getattr(sc.input_transcription, "finished", True)))
+                                      final=bool(getattr(sc.input_transcription, "finished", True)),
+                                      language_code=getattr(sc.input_transcription, "language_code", None))
                         if sc.output_transcription and sc.output_transcription.text:
                             # streams in word-sized chunks; the turn closes on turn_complete
                             self.emit("transcript_out", sc.output_transcription.text, final=False)

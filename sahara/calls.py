@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from fastapi import WebSocket
 from sqlmodel import select
 
-from . import config, memory, notify
+from . import config, memory, notify, transcheck
 from .db import session
 from .engine import make_engine
 from .models import Alert, Call, Family, Parent, utcnow
@@ -77,6 +77,7 @@ class LiveCall:
         self.turns: list[dict] = []
         self.obs: list[dict] = []
         self.decision: ScreenDecision | None = None
+        self.mem_writes = 0                     # in-call memory writes, for the pilot metric
         self._partial: dict[str, str] = {}
         with session() as s:
             self.call = s.get(Call, call_id)
@@ -100,26 +101,50 @@ class LiveCall:
         await engine.start(prompt, tools, self.parent.language, opening)
         stats = await bridge(ws, provider, engine, self.on_transcript, self.on_tool_call,
                              on_turn_end=self.on_turn_end)
+        parent_turns = [t for t in self.turns if t["who"] == "parent"]
+        stats["asr_flagged"] = sum(1 for t in parent_turns if "asr_flag" in t)
+        stats["parent_turns"] = len(parent_turns)
+        stats["memory_writes"] = self.mem_writes
         await self.finish(stats)
         return stats
 
-    async def on_transcript(self, who: str, text: str, final: bool):
+    async def on_transcript(self, who: str, text: str, final: bool, meta: dict | None = None):
         # The Live API streams both sides in fragments: the parent's with a finished
         # flag, Sahara's in word-sized chunks closed by turn_complete. Merge either
         # into one turn, and let the chunks' own spacing stand — Devanagari joined
         # with an invented space reads as one long word.
+        lang = (meta or {}).get("language_code")
         if self.turns and self.turns[-1]["who"] == who and not self.turns[-1].get("final", True):
             prev = self.turns[-1]["text"]
             sep = "" if (not prev or prev[-1].isspace() or (text and text[0].isspace())) else " "
             self.turns[-1]["text"] = (prev + sep + text).strip()
             self.turns[-1]["final"] = final
+            if lang:
+                self.turns[-1]["lang"] = lang
         else:
-            self.turns.append({"who": who, "text": text.strip(), "final": final})
+            turn = {"who": who, "text": text.strip(), "final": final}
+            if lang:
+                turn["lang"] = lang
+            self.turns.append(turn)
+        if final:
+            self._flag_if_drifted(self.turns[-1])
 
     async def on_turn_end(self):
         """A spoken turn finished; stop merging into it."""
         if self.turns:
             self.turns[-1]["final"] = True
+            self._flag_if_drifted(self.turns[-1])
+
+    def _flag_if_drifted(self, turn: dict):
+        """Mark a final parent turn whose transcription is inconsistent with the parent's
+        language. Deterministic, and it annotates — never deletes: drifted turns marked,
+        not laundered, is what the research artifact needs."""
+        if turn["who"] != "parent" or "asr_flag" in turn:
+            return
+        flag = (transcheck.language_mismatch(turn.get("lang"), self.parent.language)
+                or transcheck.check(turn["text"], self.parent.language))
+        if flag:
+            turn["asr_flag"] = flag
 
     async def on_tool_call(self, tc: dict) -> dict:
         name, args = tc["name"], tc.get("args", {})
@@ -127,13 +152,21 @@ class LiveCall:
             kind, detail = args.get("kind", "other"), args.get("detail", "")
             self.obs.append({"kind": kind, "detail": detail,
                              "severity": args.get("severity", "info")})
-            if kind == "health" and detail and self.call.kind == "checkin":
-                # a symptom is only useful if it can be compared with last week's
+            if detail and self.call.kind == "checkin":
+                # deterministic fan-out from an in-call tool write (the only canonical
+                # write path): a symptom becomes a thread so it can be compared with
+                # last week's; a need becomes an open loop so tomorrow's call follows
+                # it up — the model already reliably logs both as observations.
                 try:
-                    memory.remember(self.parent.id, "health_thread", detail[:60], detail,
-                                    call_id=self.call_id)
+                    if kind == "health":
+                        memory.remember(self.parent.id, "health_thread", detail[:60], detail,
+                                        call_id=self.call_id)
+                        self.mem_writes += 1
+                    elif kind == "need":
+                        memory.open_loop(self.parent.id, detail[:60], detail, call_id=self.call_id)
+                        self.mem_writes += 1
                 except Exception as e:
-                    log.warning("health thread write failed: %s", e)
+                    log.warning("memory fan-out for %s failed: %s", kind, e)
             return {"ok": True}
         if name in ("remember_person", "remember_fact", "open_loop", "close_loop"):
             return self._remember(name, args)
@@ -171,6 +204,7 @@ class LiveCall:
         except Exception as e:
             log.warning("memory write %s failed: %s", name, e)
             return {"ok": False}
+        self.mem_writes += 1
         return {"ok": True}
 
     async def finish(self, stats: dict):
@@ -179,7 +213,8 @@ class LiveCall:
             c = s.get(Call, self.call_id)
             c.ended_at = ended
             c.duration_s = int((ended - (c.started_at or ended)).total_seconds())
-            c.transcript = json.dumps([{k: v for k, v in t.items() if k != "final"} for t in self.turns], ensure_ascii=False)
+            c.transcript = json.dumps([{k: v for k, v in t.items() if k not in ("final", "lang")}
+                                       for t in self.turns], ensure_ascii=False)
             c.observations = json.dumps(self.obs, ensure_ascii=False)
             answered = stats.get("frames_in", 0) > 50 or bool(self.turns)
             if c.kind == "screen":
