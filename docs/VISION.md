@@ -58,7 +58,8 @@ flowchart TB
         BRIDGE["Audio bridge<br/>mu-law 8 kHz ↔ PCM 16 kHz"]
         SAFE["DETERMINISTIC SAFETY LAYER<br/>keyword/heuristic pass over live transcripts<br/>+ call watchdog · fires without any LLM<br/>scam risk can only be raised, never lowered"]
         ENG["Engine abstraction (sahara/engine/)<br/>persona & tools never leak into an engine"]
-        FACTS[("Structured fact store<br/>SQLite → Cloud SQL<br/>facts outlive 30-day transcripts<br/>people · preferences · routines ·<br/>health threads · open loops")]
+        FACTS[("MEMORY: per-parent knowledge graph<br/>MemoryNode + MemoryEdge · SQLite → Cloud SQL<br/>facts outlive 30-day transcripts<br/>people · places · topics · routines ·<br/>health threads · meds · events · open loops<br/>provenance · confidence · sensitivity · decay")]
+        BRIEF["Briefing compiler<br/>~300 tokens: identity, 3-5 salient facts,<br/>ONE open loop, today's calendar,<br/>open health threads, do-not-volunteer list"]
         SUM["Typed summaries (Gemini + rule fallback)"]
         NOT["Notify: WhatsApp (Meta template / BSP)<br/>+ SMS backup channel"]
         DESK["Operator desk + metrics API"]
@@ -77,7 +78,9 @@ flowchart TB
     BRIDGE --> SAFE
     ENG <--> GEM
     ENG <--> CAS
-    ENG -- "tool calls: log_observation,<br/>log_medication, flag_financial_mention,<br/>log_urgent, end_call" --> FACTS
+    FACTS --> BRIEF
+    BRIEF -- "compiled into the persona<br/>before each call" --> ENG
+    ENG -- "tool calls: log_observation, log_medication,<br/>flag_financial_mention, log_urgent,<br/>remember_person, remember_fact,<br/>open_loop, close_loop, forget, end_call" --> FACTS
     SAFE -- "urgent alerts (never model-gated)" --> NOT
     FACTS --> SUM
     SUM --> NOT
@@ -144,8 +147,28 @@ survivability, not paise per minute.**
 5. **DPDP cross-border + IT Rules 2026**: spoken recording notice and spoken AI disclosure every call
    (including screener answers); 30-day transcript retention; prefer Vertex India serving when offered.
 
-### 2.4 Cross-cutting engineering rules (consolidated from all five agents)
+### 2.4 Stack decision — memory and the knowledge graph
 
+Full framework in [MEMORY.md](MEMORY.md); the decisions that bind the stack:
+
+| Decision | Verdict | Why |
+|---|---|---|
+| Shape | **Per-parent typed knowledge graph** — `MemoryNode` + `MemoryEdge`, hard-scoped by `parent_id` | People, health threads, routines and events are relational; "who is Kamala?" is a graph question. Flat key-value loses the kinship that makes a callback feel human |
+| Store | **Two SQLModel tables in the existing SQLite → Cloud SQL path.** No graph database | A few hundred nodes per parent makes traversal two indexed joins; Neo4j for twenty parents is theatre and breaks the single-process Cloud Run deployment |
+| Writes | **Tool calls only** (`remember_person`, `remember_fact`, `open_loop`, `close_loop`, `correct_memory`, `forget`) alongside today's `log_observation` | Extends the existing "facts through tools" decision. If the model did not think it worth a tool call, it is not a fact |
+| Reads | **A ~300-token briefing compiled into the persona before each call**, carrying exactly ONE open-loop callback | Dumping the graph into the prompt is the standard failure. One callback is warmth; a recitation is surveillance |
+| Rejected | **Vector RAG over transcripts** — it recreates the archive the 30-day retention policy forbids, and makes hallucinated memory possible. Embeddings are permitted only for entity resolution, and only after string and phonetic matching are shown to fail | A wrong memory is worse than none; misremembering a dead spouse ends trust |
+| Retention | Facts survive the transcript purge; they **decay in salience, not existence**; corrections supersede rather than overwrite; `forget()` is real deletion and cascades | The longitudinal thread is the research artifact; the erasure right still has to be real |
+| Resolution | Match within `parent_id` on a normalised label key; ambiguity creates a **candidate for the child to confirm**. Silent merging forbidden | Merging two grandchildren into one is exactly the error that ends trust |
+
+**Why it earns a place in the stack:** every engagement feature in the roadmap — festival greetings,
+reminiscence, the weekly digest, the month-3 family report, the story archive, the cancellation export —
+is a consumer of this one store. Build it once; the rest becomes prompt work.
+
+### 2.5 Cross-cutting engineering rules (consolidated from all five agents)
+
+- **Memory is tool-written, per-parent, and erasable.** No vector RAG over conversations, no silent entity
+  merges, no fact the parent cannot see or delete. See [MEMORY.md](MEMORY.md).
 - **Facts outlive transcripts.** The retention split (30-day transcripts, durable structured facts) is
   the quiet architecture win: every Phase 2/3 feature consumes facts, none needs raw audio. Protect the
   boundary.
@@ -235,7 +258,7 @@ groundwork items exist solely to unblock the next.
 | 3 | **Emergency escalation protocol v1** + mandatory second contact + monthly drill + deterministic no-cloud path + WhatsApp-and-SMS alerts | Health |
 | 4 | **Medication adherence** (med list from prescription photo; self-reported framing; critical-miss alerts) | Health |
 | 5 | Symptom logging + streak flags; voice-reported fall follow-up; loneliness trend flags + hard-coded self-harm escalation (Tele-MANAS 14416) | Health |
-| 6 | **Memory v1: structured fact store + one open-loop callback per call**; persona/voice consistency spec (pinned voice, greeting ritual, aap-register) | Companionship |
+| 6 | **Memory v1: `MemoryNode`/`MemoryEdge` graph + `remember_*`/`open_loop`/`close_loop` tools + briefing compiler with ONE open-loop callback** ([MEMORY.md](MEMORY.md)); seed the graph from onboarding notes; persona/voice consistency spec (pinned voice, greeting ritual, aap-register) | Companionship |
 | 7 | Summary quality bar ("one health fact, one human moment, never 'all normal'") + WhatsApp reply loop; weekly digest v1; festival table (one region, YAML) + family birthdays; cricket conversational awareness; reminiscence prompt 2×/week with grief exit-ramp | Companionship |
 | 8 | **Screener script library** (digital-arrest/OTP/KYC/courier/TRAI/electricity/pension per language) + isolation-instruction hard-floor + callback discipline | Safety |
 | 9 | **Daily-call financial tripwire** (`flag_financial_mention`) + cooling-off conference; story-based scam inoculation 1–2×/week; safe-word → callback-discipline rehearsal | Safety |
@@ -263,8 +286,9 @@ operator (Jio/Airtel) conversation starts.
 | 6 | Care-manager network: 2–3 vetted people, one city, scheduled tasks only; decide partner-vs-build (lean partner — Emoha/Samarth-class) | Health |
 | 7 | WhatsApp "is this a scam?" checker (scam-only scope, raise-only verdicts); pension calendar + doorstep-banking concierge; post-scam recovery support | Safety |
 | 8 | Parent-side Android debit alerting — evaluate honestly (detect-not-hold framing) vs conceding that layer to free Truecaller; lean concede, save differentiation for the hub | Safety |
-| 9 | Second language via a written **localization playbook** (persona rewrite + festival YAML + scam scripts + native-speaker QA — a content project, not a config flag) | Companionship |
-| 10 | **Groundwork:** ABDM sandbox application; proxy-consent + IRDAI legal opinions; research-consent stream added to the consent artifact; radar false-positive data collection in bench-kit homes; 3–5 insurance claims done by hand | Health |
+| 9 | **Memory v2**: entity resolution with a child-confirmed candidate queue; decay and fatigue scoring; `correct_memory`/`forget`; child-facing memory view in the desk; festival and birthday nodes | Companionship |
+| 10 | Second language via a written **localization playbook** (persona rewrite + festival YAML + scam scripts + native-speaker QA — a content project, not a config flag) | Companionship |
+| 11 | **Groundwork:** ABDM sandbox application; proxy-consent + IRDAI legal opinions; research-consent stream added to the consent artifact; radar false-positive data collection in bench-kit homes; 3–5 insurance claims done by hand | Health |
 
 ### Phase 3 — Scale & moat (months 6–18 · certified hub · 4–6 languages · partnerships)
 
@@ -282,9 +306,10 @@ certification; security posture at health-data grade.
 | 4 | **ABHA integration** → auto-populated health binder + richer briefings; **insurance-claim support as the premium-tier anchor** (rupee-denominated ROI: "Sahara recovered ₹80,000") | Health |
 | 5 | Hospital admission coordination — SLA'd, premium, pin-code-limited ("care manager at the hospital within 90 minutes, 7am–11pm"); emergency care-manager dispatch once response times are measured | Health |
 | 6 | Radar presence/fall → voice-confirm check-in loop, deliberately undersold; neutral cognitive/speech observations (repetition, word-finding), opt-in, doctor-referral framing, clinical advisor on board | Health |
-| 7 | Language expansion 3 → 6, ordered by NRI willingness-to-pay × recruitability | Companionship |
-| 8 | Sahara-moderated small-group satsang circles (opt-in, heavily gated); disclosed familiar-voice A/B **only if** answer rate is a proven problem — default: don't run it | Companionship |
-| 9 | Dedicated child app only if WhatsApp demonstrably caps the experience | Companionship |
+| 7 | **Memory v3**: health-thread analytics across time; story archive and month-3 family report generated from the graph; export on cancellation as the family keepsake | Companionship |
+| 8 | Language expansion 3 → 6, ordered by NRI willingness-to-pay × recruitability | Companionship |
+| 9 | Sahara-moderated small-group satsang circles (opt-in, heavily gated); disclosed familiar-voice A/B **only if** answer rate is a proven problem — default: don't run it | Companionship |
+| 10 | Dedicated child app only if WhatsApp demonstrably caps the experience | Companionship |
 
 ---
 
@@ -308,7 +333,10 @@ certification; security posture at health-data grade.
 11. **Scambaiting personas; auto-filed police reports; inflated "scams blocked" counters.**
 12. **Reporting the parent's confided feelings without in-call consent** (safety events always escalate —
     disclosed up front).
-13. **Diet/nutrition nudging as a default** — a nagging caller poisons the data and the warmth; appetite
+13. **Vector search over transcripts, cross-family graphs, and inferred psychological profiles** — the
+    first recreates the archive retention forbids; the second is a different product with a different
+    consent basis; the third crosses the observations-never-inferences line.
+14. **Diet/nutrition nudging as a default** — a nagging caller poisons the data and the warmth; appetite
     stays a symptom, doctor-prescribed diet support stays opt-in.
 
 ---
