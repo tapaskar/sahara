@@ -36,8 +36,15 @@ def language_name(code: str) -> str:
     return LANGUAGES.get(code, code)
 
 
+def spoken_name(person, native_attr: str, fallback_attr: str) -> str:
+    """The name as the parent hears it. The notice is spoken verbatim, so a Latin name
+    inside an otherwise Devanagari sentence reads as a jarring code-switch."""
+    return (getattr(person, native_attr, "") or getattr(person, fallback_attr)).strip()
+
+
 def recording_notice(parent: Parent, family: Family) -> str:
-    return RECORDING_NOTICE.get(parent.language, RECORDING_NOTICE["en-IN"]).format(child=family.child_name)
+    child = spoken_name(family, "child_name_native", "child_name")
+    return RECORDING_NOTICE.get(parent.language, RECORDING_NOTICE["en-IN"]).format(child=child)
 
 
 # ---------------------------------------------------------------- tools ---
@@ -113,6 +120,10 @@ def checkin_prompt(parent: Parent, family: Family, briefing: str = "", callback:
     lang = language_name(parent.language)
     return f"""You are Sahara, a warm, unhurried companion who telephones {parent.name} every morning on behalf of
 their child {family.child_name}, who lives far away. You are not a doctor and not a salesperson.
+
+NAMES: say every name in the script and pronunciation of {lang} — never spell out a Latin name.
+{parent.name} is spoken as "{spoken_name(parent, 'name_native', 'name')}" and their child as
+"{spoken_name(family, 'child_name_native', 'child_name')}".
 
 LANGUAGE: speak only {lang} for the whole call, in the simple, respectful register used with an elder
 (in Hindi use आप, never तुम). If they answer in another language, switch to it and stay there. Short

@@ -90,7 +90,7 @@ class LiveCall:
             prompt, tools = screener_prompt(self.parent, self.family), SCREEN_TOOLS
             opening = "Answer the call and ask who is calling."
         else:
-            memory.ensure_seeded(self.parent, self.family.child_name)
+            memory.ensure_seeded(self.parent, self.family.child_name_native or self.family.child_name)
             brief, ask = memory.briefing(self.parent.id), memory.callback(self.parent.id)
             memory.mark_used(self.parent.id, brief)
             prompt, tools = checkin_prompt(self.parent, self.family, brief, ask), CHECKIN_TOOLS

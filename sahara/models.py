@@ -14,6 +14,7 @@ def utcnow() -> datetime:
 class Family(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     child_name: str
+    child_name_native: str = ""           # the child's name in the parent's script, as she says it
     child_phone: str                      # E.164, WhatsApp-capable
     child_language: str = "en"            # language of the summary
     created_at: datetime = Field(default_factory=utcnow)
@@ -23,6 +24,7 @@ class Parent(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     family_id: int = Field(foreign_key="family.id")
     name: str
+    name_native: str = ""                 # the parent's name in their own script
     phone: str                            # E.164
     language: str = "hi-IN"               # BCP-47; see persona.LANGUAGES
     call_time: str = "08:30"              # local time, HH:MM

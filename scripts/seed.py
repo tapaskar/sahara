@@ -12,18 +12,22 @@ from sahara.db import init_db, session
 from sahara.models import Family, Parent, utcnow
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--child", required=True); ap.add_argument("--child-phone", required=True)
+ap.add_argument("--child", required=True)
+ap.add_argument("--child-native", default="", help="the child's name in the parent's script"); ap.add_argument("--child-phone", required=True)
 ap.add_argument("--child-language", default="en")
-ap.add_argument("--parent", required=True); ap.add_argument("--parent-phone", required=True)
+ap.add_argument("--parent", required=True)
+ap.add_argument("--parent-native", default="", help="the parent's name in their own script"); ap.add_argument("--parent-phone", required=True)
 ap.add_argument("--language", default="hi-IN"); ap.add_argument("--time", default="08:30")
 ap.add_argument("--meds", default="", help='JSON list, e.g. [{"name":"Amlodipine","when":"morning"}]')
 ap.add_argument("--notes", default=""); ap.add_argument("--consent", action="store_true")
 a = ap.parse_args()
 init_db()
 with session() as s:
-    f = Family(child_name=a.child, child_phone=a.child_phone, child_language=a.child_language)
+    f = Family(child_name=a.child, child_name_native=a.child_native,
+               child_phone=a.child_phone, child_language=a.child_language)
     s.add(f); s.commit(); s.refresh(f)
-    p = Parent(family_id=f.id, name=a.parent, phone=a.parent_phone, language=a.language, call_time=a.time,
+    p = Parent(family_id=f.id, name=a.parent, name_native=a.parent_native,
+               phone=a.parent_phone, language=a.language, call_time=a.time,
                medications=json.dumps(json.loads(a.meds) if a.meds else []), notes=a.notes,
                consent=a.consent, consent_at=utcnow() if a.consent else None)
     s.add(p); s.commit(); s.refresh(p)

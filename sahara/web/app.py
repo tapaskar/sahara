@@ -76,6 +76,7 @@ def _gemini_auth() -> str:
 # ------------------------------------------------------------- families ---
 class FamilyIn(BaseModel):
     child_name: str
+    child_name_native: str = ""
     child_phone: str
     child_language: str = "en"
 
@@ -83,6 +84,7 @@ class FamilyIn(BaseModel):
 class ParentIn(BaseModel):
     family_id: int
     name: str
+    name_native: str = ""
     phone: str
     language: str = "hi-IN"
     call_time: str = "08:30"
@@ -108,7 +110,7 @@ def create_parent(body: ParentIn):
         p = Parent(**{**body.model_dump(exclude={"medications"}), "medications": json.dumps(body.medications),
                       "consent_at": utcnow() if body.consent else None})
         s.add(p); s.commit(); s.refresh(p)
-    memory.ensure_seeded(p, family.child_name)      # give the first call something to remember
+    memory.ensure_seeded(p, family.child_name_native or family.child_name)      # give the first call something to remember
     return p
 
 

@@ -167,3 +167,38 @@ def test_memory_api_exposes_and_erases():
     assert any(n["label"] == "cricket" for n in got["nodes"]) and "cricket" in got["briefing"]
     assert client.delete(f"/api/parents/{pid}/memory/cricket").json()["removed"] >= 1
     assert not any(n["label"] == "cricket" for n in client.get(f"/api/parents/{pid}/memory").json()["nodes"])
+
+
+def test_names_are_spoken_in_the_parents_script():
+    """A Latin name inside an otherwise Devanagari sentence reads as a code-switch: the
+    recording notice is spoken verbatim, so the native form has to reach it."""
+    from sahara.db import session
+    from sahara.models import Family, Parent
+    from sahara.persona import checkin_prompt, recording_notice
+
+    f = client.post("/api/families", json={"child_name": "Ravi", "child_name_native": "रवि",
+                                           "child_phone": "+919800000200"}).json()
+    p = client.post("/api/parents", json={"family_id": f["id"], "name": "Sushila Devi",
+                                          "name_native": "सुशीला देवी", "phone": "+919700000200",
+                                          "language": "hi-IN", "consent": True}).json()
+    with session() as s:
+        parent, family = s.get(Parent, p["id"]), s.get(Family, f["id"])
+
+    notice = recording_notice(parent, family)
+    assert "रवि" in notice and "Ravi" not in notice
+    assert "रवि" in checkin_prompt(parent, family)
+
+    # the graph remembers them as the parent says them
+    assert any(n["label"] == "रवि" for n in memory.graph(p["id"])["nodes"])
+
+
+def test_a_family_without_a_native_name_still_works():
+    from sahara.db import session
+    from sahara.models import Family, Parent
+    from sahara.persona import recording_notice
+
+    pid = _parent(child="Meera")
+    with session() as s:
+        parent = s.get(Parent, pid)
+        family = s.get(Family, parent.family_id)
+    assert "Meera" in recording_notice(parent, family)      # falls back, never blank
