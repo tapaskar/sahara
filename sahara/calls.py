@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from fastapi import WebSocket
 from sqlmodel import select
 
-from . import config, memory, notify, transcheck
+from . import config, escalate, memory, notify, transcheck
 from .db import session
 from .engine import make_engine
 from .models import Alert, Call, Family, Parent, utcnow
@@ -231,16 +231,31 @@ class LiveCall:
 
     async def _notify_checkin(self):
         summary = await summarize(self.turns, self.obs, self.parent, self.family)
+        # reasoning pass, off the critical path: decide how hard to reach the child, with the
+        # whole call and earlier calls in view — the voice model's mid-call tags under-fire.
+        history = memory.prior_health(self.parent.id, exclude_call_id=self.call_id)
+        esc = await escalate.assess(self.turns, self.obs, self.parent, self.family, history)
         with session() as s:
-            c = s.get(Call, self.call_id); c.summary = summary.model_dump_json(); s.add(c); s.commit()
+            c = s.get(Call, self.call_id)
+            c.summary = summary.model_dump_json()
+            c.escalation = esc.model_dump_json()
+            s.add(c); s.commit()
+        log.info("call %s escalation: %s (%s)", self.call_id, esc.level, "; ".join(esc.signals))
+
         channel, ok = await notify.send_whatsapp(self.family.child_phone, summary.child_message)
         with session() as s:
-            s.add(notify.alert_row(self.parent.id, self.call_id, "summary", "info", summary.child_message, channel, ok))
-            urgent = [o for o in self.obs if o.get("severity") == "urgent"]
-            for o in urgent:
-                msg = f"URGENT from {self.parent.name}'s call: {o['detail']}. Please call them now."
-                ch, ok2 = await notify.send_whatsapp(self.family.child_phone, msg)
-                s.add(notify.alert_row(self.parent.id, self.call_id, o.get("kind", "health"), "urgent", msg, ch, ok2))
+            s.add(notify.alert_row(self.parent.id, self.call_id, "summary", "info",
+                                   summary.child_message, channel, ok))
+            # one escalation alert, driven by the reasoning pass rather than a lone urgent tag
+            if esc.level in ("urgent", "emergency"):
+                lead = "EMERGENCY" if esc.level == "emergency" else "URGENT"
+                body = " ".join(x for x in (esc.headline, esc.recommended_action) if x) \
+                    or f"{lead}: please call {self.parent.name} now."
+                ch, ok2 = await notify.send_whatsapp(self.family.child_phone, f"{lead}: {body}")
+                s.add(notify.alert_row(self.parent.id, self.call_id, "health", esc.level, body, ch, ok2))
+            elif esc.level == "notify" and esc.headline:
+                s.add(notify.alert_row(self.parent.id, self.call_id, "health", "warn",
+                                       esc.headline, channel, ok))
             for m in summary.scam_mentions:
                 s.add(notify.alert_row(self.parent.id, self.call_id, "scam", "warn", m, channel, ok))
             s.commit()

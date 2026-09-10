@@ -303,6 +303,24 @@ def ensure_seeded(parent, child_name: str = "") -> int:
     return seed_from_parent(parent.id, parent.notes, parent.meds(), child_name)
 
 
+def prior_health(parent_id: int, exclude_call_id: int | None = None) -> str:
+    """A compact line per open health thread from earlier calls, for the escalation pass to
+    judge trend against — is today's symptom new, or the same one mentioned for weeks?"""
+    now = utcnow()
+    with session() as s:
+        threads = s.exec(select(MemoryNode).where(
+            MemoryNode.parent_id == parent_id, MemoryNode.kind == "health_thread",
+            MemoryNode.status == "active")).all()
+    lines = []
+    for n in sorted(threads, key=lambda n: n.last_confirmed, reverse=True):
+        if exclude_call_id and n.source_call_id == exclude_call_id:
+            continue
+        days = (now - n.last_confirmed).days
+        when = "today" if days == 0 else f"{days}d ago"
+        lines.append(f"- {n.detail or n.label} (last mentioned {when}, severity {n.severity})")
+    return "\n".join(lines)
+
+
 def graph(parent_id: int) -> dict:
     """The whole graph for one parent — for the operator desk and the eventual export."""
     with session() as s:

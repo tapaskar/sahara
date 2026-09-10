@@ -58,6 +58,7 @@ class Call(SQLModel, table=True):
     transcript: str = "[]"                # JSON list of {"who": "parent"|"sahara"|"caller", "text"}
     observations: str = "[]"              # JSON list from tool calls
     summary: str = ""                     # JSON CallSummary / ScreenDecision
+    escalation: str = ""                  # JSON Escalation (reasoning pass)
     created_at: datetime = Field(default_factory=utcnow)
 
     def turns(self) -> list[dict]:

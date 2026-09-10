@@ -175,6 +175,7 @@ def get_call(cid: int):
         d = c.model_dump()
         d["turns"], d["obs"] = c.turns(), c.obs()
         d["summary"] = json.loads(c.summary) if c.summary else None
+        d["escalation"] = json.loads(c.escalation) if c.escalation else None
         d["alerts"] = [a.model_dump() for a in s.exec(select(Alert).where(Alert.call_id == cid)).all()]
         return d
 
