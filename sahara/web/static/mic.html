@@ -139,6 +139,7 @@ registerProcessor('cap', Cap); registerProcessor('ply', Ply);
 
 // ----------------------------------------------------------------- call ---
 let ctx, ws, stream, capNode, plyNode, poll, callId = null, pending = [];
+let heard = 0, engineName = '';          // heard: frames of Sahara's voice this call
 
 async function startCall() {
   $('#start').disabled = true;
@@ -147,7 +148,7 @@ async function startCall() {
     if (!pid) throw new Error('pick a parent first');
 
     const info = await api(`/parents/${pid}/mic-call`, {method:'POST'});
-    callId = info.call_id;
+    callId = info.call_id; heard = 0; engineName = info.engine;
     log(`call ${callId} · parent ${info.parent} · language ${info.language} · engine ${info.engine}`);
     if (info.engine === 'null')
       status('Engine is "null" — SAHARA_OFFLINE=1 is set, so you will hear a test tone, not Sahara. Unset it and set a Gemini key for a real conversation.', 'warn');
@@ -183,6 +184,7 @@ async function startCall() {
     ws.onmessage = e => {
       const m = JSON.parse(e.data);
       if (m.event === 'media') {
+        heard++;
         const pcm = muDecode(unb64(m.media.payload));
         const f = new Float32Array(pcm.length);
         for (let i=0;i<pcm.length;i++) f[i] = pcm[i] / 32768;
@@ -192,7 +194,21 @@ async function startCall() {
         log('← clear (barge-in)');
       }
     };
-    ws.onclose = () => { status('Call ended.', ''); teardown() };
+    ws.onclose = ev => {
+      // A call that ends without Sahara ever speaking means the engine never
+      // started — nearly always a missing or wrong Gemini credential.
+      if (heard === 0) {
+        status(engineName === 'null'
+          ? 'Ended with no audio. The engine is "null" (SAHARA_OFFLINE=1), so there was nothing to say.'
+          : `Ended before Sahara spoke — the ${engineName} engine did not start. Check the server log: `
+            + 'usually GOOGLE_API_KEY / GEMINI_API_KEY is missing or wrong, or the model name is unavailable '
+            + 'to your project.', 'bad');
+        log(`socket closed with no audio (code ${ev.code})`);
+      } else {
+        status('Call ended.', '');
+      }
+      teardown();
+    };
     ws.onerror = () => status('WebSocket error — is the server running?', 'bad');
 
     capNode.port.onmessage = e => {
