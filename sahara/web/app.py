@@ -33,6 +33,15 @@ init_db()
 async def _startup():
     global _sched
     if not config.OFFLINE:
+        auth = _gemini_auth()
+        if auth.startswith("NONE"):
+            # otherwise the first call dies on credentials several minutes from now,
+            # which reads like a broken product rather than a missing variable
+            logging.getLogger("sahara.web").error(
+                "STARTING WITHOUT GEMINI CREDENTIALS - every call will fail. %s. "
+                "Set GOOGLE_API_KEY, or SAHARA_OFFLINE=1 to run the scripted engine.", auth)
+        else:
+            logging.getLogger("sahara.web").info("gemini auth: %s", auth)
         _sched = scheduler.build_scheduler(); _sched.start()
 
 
