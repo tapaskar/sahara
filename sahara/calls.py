@@ -150,20 +150,21 @@ class LiveCall:
         name, args = tc["name"], tc.get("args", {})
         if name == "log_observation":
             kind, detail = args.get("kind", "other"), args.get("detail", "")
-            self.obs.append({"kind": kind, "detail": detail,
-                             "severity": args.get("severity", "info")})
+            severity = args.get("severity", "info")
+            self.obs.append({"kind": kind, "detail": detail, "severity": severity})
             if detail and self.call.kind == "checkin":
                 # deterministic fan-out from an in-call tool write (the only canonical
                 # write path): a symptom becomes a thread so it can be compared with
                 # last week's; a need becomes an open loop so tomorrow's call follows
-                # it up — the model already reliably logs both as observations.
+                # it up. Severity rides along so a fall outranks a bill in the callback.
                 try:
                     if kind == "health":
                         memory.remember(self.parent.id, "health_thread", detail[:60], detail,
-                                        call_id=self.call_id)
+                                        severity=severity, call_id=self.call_id)
                         self.mem_writes += 1
                     elif kind == "need":
-                        memory.open_loop(self.parent.id, detail[:60], detail, call_id=self.call_id)
+                        memory.open_loop(self.parent.id, detail[:60], detail,
+                                         severity=severity, call_id=self.call_id)
                         self.mem_writes += 1
                 except Exception as e:
                     log.warning("memory fan-out for %s failed: %s", kind, e)

@@ -202,3 +202,54 @@ def test_a_family_without_a_native_name_still_works():
         parent = s.get(Parent, pid)
         family = s.get(Family, parent.family_id)
     assert "Meera" in recording_notice(parent, family)      # falls back, never blank
+
+
+async def test_a_fall_leads_tomorrows_call_not_a_routine_bill():
+    """Reproduces call 9: three warn health facts (leg pain, a fall, ankle swelling), a
+    warn need (doctor) and an info need (bill). Tomorrow must open with the fall episode
+    and follow it up as one thing — never with the bill."""
+    from sahara import memory
+    from sahara.calls import LiveCall
+
+    pid = _parent()
+    call_id = client.post(f"/api/parents/{pid}/mic-call").json()["call_id"]
+    live = LiveCall(call_id)
+
+    async def obs(kind, detail, severity):
+        await live.on_tool_call({"id": "x", "name": "log_observation",
+                                 "args": {"kind": kind, "detail": detail, "severity": severity}})
+
+    await obs("health", "Pain in leg since morning", "warn")
+    await obs("health", "Fell yesterday, causing leg pain", "warn")
+    await obs("health", "Ankle swelling after the fall", "warn")
+    await obs("need", "Wants to consult a doctor about the fall", "warn")
+    await obs("need", "Needs a bill paid", "info")
+
+    cb = memory.callback(pid)
+    assert "bill" not in cb.lower(), "a routine bill must not lead a call after a fall"
+    assert "fell" in cb.lower() or "fall" in cb.lower() or "ankle" in cb.lower()
+    # it is one grouped episode, not a single scattered fragment
+    assert "close_loop once for each" in cb
+
+    # the bill still survives as a lower-priority loop for a later call
+    loops = [n["label"] for n in memory.graph(pid)["nodes"] if n["kind"] == "open_loop"]
+    assert any("bill" in l.lower() for l in loops)
+
+    # the briefing must not also re-list the health threads the opening already covers
+    brief = memory.briefing(pid)
+    assert "OPEN HEALTH THREADS" not in brief or "ankle" not in brief.lower()
+
+
+async def test_resolving_a_thread_stops_it_leading():
+    from sahara import memory
+    from sahara.calls import LiveCall
+
+    pid = _parent()
+    call_id = client.post(f"/api/parents/{pid}/mic-call").json()["call_id"]
+    live = LiveCall(call_id)
+    await live.on_tool_call({"id": "1", "name": "log_observation",
+                             "args": {"kind": "health", "detail": "Ankle swelling", "severity": "warn"}})
+    assert "ankle" in memory.callback(pid).lower()
+    # next call: she says it's healed
+    memory.close_loop(pid, "Ankle swelling", "healed, no more swelling")
+    assert "ankle" not in memory.callback(pid).lower()

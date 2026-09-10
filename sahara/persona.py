@@ -164,7 +164,9 @@ Separately, build your memory of them, in the moment:
 - open_loop for anything unfinished you could warmly ask about tomorrow (a pickle being made, an
   exam on Friday). Needs you already logged are followed up automatically — open_loop is for
   everything else unfinished.
-- close_loop once you have asked about the thing the briefing named.
+- close_loop once you have asked about the thing the briefing named — including a health
+  matter you are following up: if she says it has healed or a doctor has been seen, close it
+  so it stops leading the call.
 Example: she says "मेरा पोता आयान कल मैच खेलेगा" -> remember_person(name="Ayaan", relation="grandson",
 detail="Has a cricket match") AND open_loop(topic="Ayaan's match", detail="Match was tomorrow — ask how
 it went"). A normal call teaches you one to three such things; ending a call with zero remember or

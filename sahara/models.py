@@ -78,6 +78,7 @@ class MemoryNode(SQLModel, table=True):
     relation: str = ""                    # person nodes: relation to the parent (son, grandson, neighbour)
     detail: str = ""                      # one sentence, English
     status: str = "active"                # active | closed (open_loops) | superseded | deleted
+    severity: str = "info"                # info | warn | urgent — a fall outranks a bill
     sensitivity: str = "normal"           # normal | sensitive | never_volunteer
     confidence: float = 0.6               # model 0.6, parent-confirmed 0.9, child-corrected 1.0
     corrected_by: str = "model"           # model | parent | child

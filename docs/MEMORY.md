@@ -143,7 +143,10 @@ The fatigue term matters: a fact used in the last three calls should yield to a 
 becomes the relative who tells the same story every visit.
 
 **One callback per call.** Not four. "कल आप अचार बनाने वाली थीं — बना?" is warmth; a recitation of
-everything we know is surveillance.
+everything we know is surveillance. The callback is severity-weighted: a `warn`/`urgent` health
+thread outranks any routine open loop, and the same-call fragments of a health episode (a fall,
+the pain, the swelling, the wish to see a doctor) are gathered into one follow-up — so a fall is
+asked about as one thing, never as a scattered fragment or, worse, behind a bill.
 
 ## 6. Entity resolution
 

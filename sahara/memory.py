@@ -19,6 +19,7 @@ FACT_KINDS = ("preference", "routine", "place", "event", "organisation", "topic"
 SENSITIVITIES = ("normal", "sensitive", "never_volunteer")
 
 MAX_FACTS = 5          # a briefing is a handful of things, not a dossier
+SEVERITY_RANK = {"info": 0, "warn": 1, "urgent": 2}
 HALF_LIFE_DAYS = 45.0  # salience halves after this long without confirmation
 
 
@@ -35,8 +36,8 @@ def normalise(label: str) -> str:
 
 # ----------------------------------------------------------------- writing ---
 def remember(parent_id: int, kind: str, label: str, detail: str = "", *, relation: str = "",
-             sensitivity: str = "normal", confidence: float = 0.6, corrected_by: str = "model",
-             call_id: int | None = None) -> MemoryNode:
+             sensitivity: str = "normal", severity: str = "info", confidence: float = 0.6,
+             corrected_by: str = "model", call_id: int | None = None) -> MemoryNode:
     """Upsert one fact. A confident match refreshes the node and raises its confidence
     rather than creating a duplicate; matching never crosses parent_id."""
     key = normalise(label)
@@ -51,7 +52,8 @@ def remember(parent_id: int, kind: str, label: str, detail: str = "", *, relatio
         if node is None:
             node = MemoryNode(parent_id=parent_id, kind=kind, label=label.strip(), label_key=key,
                               relation=relation, detail=detail, sensitivity=sensitivity,
-                              confidence=confidence, corrected_by=corrected_by, source_call_id=call_id)
+                              severity=severity, confidence=confidence, corrected_by=corrected_by,
+                              source_call_id=call_id)
         else:
             node.last_confirmed = utcnow()
             node.confidence = min(1.0, max(node.confidence, confidence) + 0.1)  # re-mention is evidence
@@ -61,6 +63,8 @@ def remember(parent_id: int, kind: str, label: str, detail: str = "", *, relatio
                 node.relation = relation
             if sensitivity != "normal":
                 node.sensitivity = sensitivity          # sensitivity only ever tightens
+            if SEVERITY_RANK.get(severity, 0) > SEVERITY_RANK.get(node.severity, 0):
+                node.severity = severity                # severity only ever rises
             if node.status == "closed":
                 node.status = "active"
         s.add(node); s.commit(); s.refresh(node)
@@ -81,17 +85,20 @@ def link(parent_id: int, src: MemoryNode, dst: MemoryNode, kind: str, label: str
         return edge
 
 
-def open_loop(parent_id: int, topic: str, detail: str = "", call_id: int | None = None) -> MemoryNode:
+def open_loop(parent_id: int, topic: str, detail: str = "", call_id: int | None = None,
+              severity: str = "info") -> MemoryNode:
     """Something unfinished worth asking about next time."""
-    return remember(parent_id, "open_loop", topic, detail, call_id=call_id)
+    return remember(parent_id, "open_loop", topic, detail, severity=severity, call_id=call_id)
 
 
 def close_loop(parent_id: int, topic: str, outcome: str = "") -> MemoryNode | None:
-    """The loop was asked about; stop offering it as a callback."""
+    """The loop was asked about, or a health thread has resolved; stop leading the call
+    with it. The node is kept (status=closed), so the longitudinal history survives."""
     key = normalise(topic)
     with session() as s:
         node = s.exec(select(MemoryNode).where(
-            MemoryNode.parent_id == parent_id, MemoryNode.kind == "open_loop",
+            MemoryNode.parent_id == parent_id,
+            MemoryNode.kind.in_(("open_loop", "health_thread")),
             MemoryNode.label_key == key, MemoryNode.status == "active")).first()
         if node is None:
             return None
@@ -148,7 +155,8 @@ def briefing(parent_id: int, max_facts: int = MAX_FACTS) -> str:
             rel.setdefault(a.id, []).append(f"{e.kind.lower().replace('_', ' ')} {b.label}")
 
     hidden = [n for n in nodes if n.sensitivity in ("sensitive", "never_volunteer")]
-    threads = [n for n in nodes if n.kind == "health_thread"]
+    in_callback = _callback_covered(parent_id)      # already surfaced in the opening
+    threads = [n for n in nodes if n.kind == "health_thread" and n.id not in in_callback]
     facts = [n for n in nodes if n.kind not in ("open_loop", "health_thread")
              and n.sensitivity == "normal"]
 
@@ -176,22 +184,77 @@ def briefing(parent_id: int, max_facts: int = MAX_FACTS) -> str:
     return "\n".join(lines)
 
 
-def callback(parent_id: int) -> str:
-    """The one open loop to ask about, phrased for the opening of the call. Kept separate
-    from the knowledge block because it has to sit beside the greeting: buried below the
-    checklist, the model works through the agenda and never reaches it."""
+def _priority(node: MemoryNode, now) -> float:
+    """Severity dominates salience: a fall with swelling outranks a routine bill, whatever
+    order they were mentioned in."""
+    return SEVERITY_RANK.get(node.severity, 0) * 100 + _salience(node, now)
+
+
+def _callback_nodes(parent_id: int):
+    """Callback candidates: every open loop, plus health threads serious enough to lead a
+    call (warn or urgent). A mild, routine symptom stays in the briefing list — it should
+    not displace "you were making pickle" from the opening."""
     now = utcnow()
     with session() as s:
-        loops = s.exec(select(MemoryNode).where(
-            MemoryNode.parent_id == parent_id, MemoryNode.kind == "open_loop",
+        cands = s.exec(select(MemoryNode).where(
+            MemoryNode.parent_id == parent_id,
+            MemoryNode.kind.in_(("open_loop", "health_thread")),
             MemoryNode.status == "active")).all()
-    if not loops:
+    cands = [n for n in cands
+             if n.kind == "open_loop" or SEVERITY_RANK.get(n.severity, 0) >= 1]
+    return sorted(cands, key=lambda n: _priority(n, now), reverse=True)
+
+
+def callback(parent_id: int) -> str:
+    """The one thing to open the call with, phrased for the greeting. Kept separate from
+    the knowledge block because it must sit beside the greeting: buried below the checklist,
+    the model works through the agenda and never reaches it.
+
+    When the top item is a warn/urgent health matter, the same-call fragments (a fall, the
+    resulting pain, the swelling, the wish to see a doctor) are gathered into one episode,
+    so tomorrow opens with "yesterday's fall — how is the ankle, did you see a doctor?"
+    rather than a single scattered fragment or, worse, a routine bill."""
+    ranked = _callback_nodes(parent_id)
+    if not ranked:
         return ""
-    n = max(loops, key=lambda x: _salience(x, now))
-    detail = f" — {n.detail}" if n.detail else ""
+    top = ranked[0]
+
+    if SEVERITY_RANK.get(top.severity, 0) >= 1:
+        # gather the episode: every warn+ candidate from the same call as the top item
+        episode = [n for n in ranked
+                   if n.source_call_id == top.source_call_id
+                   and SEVERITY_RANK.get(n.severity, 0) >= 1]
+        details, seen = [], set()
+        for n in episode:
+            d = (n.detail or n.label).strip().rstrip(".")
+            k = normalise(d)
+            if k and k not in seen:
+                seen.add(k)
+                details.append(d)
+        recap = "; ".join(details[:2]) if details else "how she was feeling"
+        topics = "; ".join(n.label for n in episode)
+        return (f"Right after the greeting, before anything else, gently follow up on what she told "
+                f"you yesterday — {recap}. Ask how it is today and whether it has been dealt with "
+                f"(a doctor seen, the swelling down). Listen with care, do not diagnose. Then call "
+                f"close_loop once for each of these exact topics with what she says: {topics}. "
+                f"After that, carry on warmly.")
+
+    detail = f" — {top.detail}" if top.detail else ""
     return (f"Right after the greeting, before anything else, ask warmly about this one thing: "
-            f"{n.label}{detail}. Ask it once, listen, then call close_loop with what they say and "
+            f"{top.label}{detail}. Ask it once, listen, then call close_loop with what they say and "
             f"move on. Do not raise it again.")
+
+
+def _callback_covered(parent_id: int) -> set[int]:
+    """Node ids the opening callback already speaks to, so the briefing does not repeat them."""
+    ranked = _callback_nodes(parent_id)
+    if not ranked:
+        return set()
+    top = ranked[0]
+    if SEVERITY_RANK.get(top.severity, 0) >= 1:
+        return {n.id for n in ranked
+                if n.source_call_id == top.source_call_id and SEVERITY_RANK.get(n.severity, 0) >= 1}
+    return {top.id}
 
 
 def mark_used(parent_id: int, text: str) -> None:
