@@ -26,7 +26,8 @@ FRAME = 160   # 20 ms of 8 kHz mu-law
 async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
                  on_transcript: Callable[[str, str, bool], Awaitable[None]],
                  on_tool_call: Callable[[dict], Awaitable[dict | None]],
-                 max_seconds: int | None = None) -> dict:
+                 max_seconds: int | None = None,
+                 on_turn_end: Callable[[], Awaitable[None]] | None = None) -> dict:
     """Runs until the provider stops the stream, the engine ends, or the time cap hits."""
     info: dict = {}
     started = time.time()
@@ -73,10 +74,13 @@ async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
                     await engine.send_tool_result(ev.data["id"], ev.data["name"], result or {"ok": True})
                     if ev.data["name"] == "end_call":
                         ending = True
-                elif ev.type == "turn_complete" and ending:
-                    # let the goodbye play out on the network before hanging up
-                    await asyncio.sleep(2.5)
-                    stats["ended_by"] = "agent"; stop.set(); return
+                elif ev.type == "turn_complete":
+                    if on_turn_end:
+                        await on_turn_end()
+                    if ending:
+                        # let the goodbye play out on the network before hanging up
+                        await asyncio.sleep(2.5)
+                        stats["ended_by"] = "agent"; stop.set(); return
                 elif ev.type == "end":
                     stats["ended_by"] = stats["ended_by"] or "engine"; stop.set(); return
         except Exception as e:

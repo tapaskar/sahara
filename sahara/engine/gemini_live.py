@@ -70,7 +70,8 @@ class GeminiLiveEngine(VoiceEngine):
                         self.emit("transcript_in", sc.input_transcription.text,
                                   final=bool(getattr(sc.input_transcription, "finished", True)))
                     if sc.output_transcription and sc.output_transcription.text:
-                        self.emit("transcript_out", sc.output_transcription.text)
+                        # streams in word-sized chunks; the turn closes on turn_complete
+                        self.emit("transcript_out", sc.output_transcription.text, final=False)
                     if sc.interrupted:
                         self.emit("interrupted")
                     if sc.turn_complete:

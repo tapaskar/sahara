@@ -167,3 +167,63 @@ def test_mic_call_row_runs_over_the_same_bridge():
     assert got_audio > 20
     d = client.get(f"/api/calls/{call_id}").json()
     assert d["status"] == "completed" and d["turns"]
+
+
+# Gemini Live streams Sahara's own speech in word-sized chunks. Two guards: the engine
+# must mark those chunks unfinished, and the call must merge them into one readable
+# turn. Transcripts are the pilot's research artifact, and Devanagari joined with an
+# invented space reads as one long word.
+CHUNKS = ["नमस्ते, मैं", " सहारा", " हूँ।", " यह", " कॉल", " रिकॉर्ड", " हो रही", " है"]
+
+
+async def test_engine_marks_spoken_chunks_unfinished():
+    from types import SimpleNamespace as NS
+
+    from sahara.engine.gemini_live import GeminiLiveEngine
+
+    def content(**kw):
+        fields = dict(input_transcription=None, output_transcription=None,
+                      interrupted=False, turn_complete=False)
+        fields.update(kw)
+        return NS(data=None, server_content=NS(**fields), tool_call=None, go_away=None)
+
+    msgs = [content(output_transcription=NS(text=c)) for c in CHUNKS]
+    msgs.append(content(turn_complete=True))
+
+    class FakeSession:
+        async def receive(self):
+            for m in msgs:
+                yield m
+
+    eng = GeminiLiveEngine()
+    eng._session = FakeSession()
+    await eng._receive()
+
+    events = []
+    while not eng.queue.empty():
+        events.append(eng.queue.get_nowait())
+    spoken = [e for e in events if e.type == "transcript_out"]
+    assert len(spoken) == len(CHUNKS)
+    assert all(e.meta.get("final") is False for e in spoken), "chunks must not close the turn"
+    assert any(e.type == "turn_complete" for e in events), "turn_complete closes it instead"
+
+
+async def test_streamed_chunks_become_one_turn():
+    from sahara.calls import LiveCall
+
+    f, p = _seed()
+    call_id = client.post(f"/api/parents/{p['id']}/mic-call").json()["call_id"]
+    live = LiveCall(call_id)
+
+    for c in CHUNKS:
+        await live.on_transcript("sahara", c, False)
+    await live.on_turn_end()
+    await live.on_transcript("parent", "ठीक", False)          # new speaker, new turn
+    await live.on_transcript("parent", " हूँ बेटा", True)
+    await live.on_transcript("sahara", "अच्छा", False)         # does not rejoin the closed turn
+
+    assert len(live.turns) == 3, live.turns
+    assert live.turns[0] == {"who": "sahara", "final": True,
+                             "text": "नमस्ते, मैं सहारा हूँ। यह कॉल रिकॉर्ड हो रही है"}
+    assert live.turns[1]["text"] == "ठीक हूँ बेटा"
+    assert live.turns[2]["text"] == "अच्छा"

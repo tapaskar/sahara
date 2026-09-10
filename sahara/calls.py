@@ -95,17 +95,28 @@ class LiveCall:
         with session() as s:
             c = s.get(Call, self.call_id); c.status = "in_progress"; c.engine = engine.name; s.add(c); s.commit()
         await engine.start(prompt, tools, self.parent.language, opening)
-        stats = await bridge(ws, provider, engine, self.on_transcript, self.on_tool_call)
+        stats = await bridge(ws, provider, engine, self.on_transcript, self.on_tool_call,
+                             on_turn_end=self.on_turn_end)
         await self.finish(stats)
         return stats
 
     async def on_transcript(self, who: str, text: str, final: bool):
-        # Live API streams partial input transcripts; merge fragments of the same speaker
+        # The Live API streams both sides in fragments: the parent's with a finished
+        # flag, Sahara's in word-sized chunks closed by turn_complete. Merge either
+        # into one turn, and let the chunks' own spacing stand — Devanagari joined
+        # with an invented space reads as one long word.
         if self.turns and self.turns[-1]["who"] == who and not self.turns[-1].get("final", True):
-            self.turns[-1]["text"] = (self.turns[-1]["text"] + " " + text).strip()
+            prev = self.turns[-1]["text"]
+            sep = "" if (not prev or prev[-1].isspace() or (text and text[0].isspace())) else " "
+            self.turns[-1]["text"] = (prev + sep + text).strip()
             self.turns[-1]["final"] = final
         else:
             self.turns.append({"who": who, "text": text.strip(), "final": final})
+
+    async def on_turn_end(self):
+        """A spoken turn finished; stop merging into it."""
+        if self.turns:
+            self.turns[-1]["final"] = True
 
     async def on_tool_call(self, tc: dict) -> dict:
         name, args = tc["name"], tc.get("args", {})
