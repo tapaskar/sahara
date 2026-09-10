@@ -35,8 +35,11 @@ class GeminiLiveEngine(VoiceEngine):
             tools=[types.Tool(function_declarations=[types.FunctionDeclaration(**t) for t in tools])] if tools else None,
             speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.GEMINI_VOICE))),
-            input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
+            # Pin the parent's language. Left to auto-detect, one live call came back as
+            # Portuguese ("eu ja tomei remedio" for a Hindi answer about medicine) — which
+            # ruins the transcript as the pilot's record of how ASR handles elderly speech.
+            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=[language]),
+            output_audio_transcription=types.AudioTranscriptionConfig(language_codes=[language]),
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,   # elders pause
