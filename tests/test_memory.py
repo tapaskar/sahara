@@ -54,8 +54,9 @@ def test_briefing_carries_exactly_one_callback_and_hides_sensitive_facts():
     memory.open_loop(pid, "making achaar", "was going to make it yesterday")
     memory.open_loop(pid, "Ayaan's exam", "exam was on Friday")
 
-    b = memory.briefing(pid)
-    assert b.count("ASK ABOUT THIS ONCE") == 1, "one callback, never a recitation"
+    b, ask = memory.briefing(pid), memory.callback(pid)
+    assert ask and ask.count("ask warmly about this one thing") == 1, "one callback, not a recitation"
+    assert ("making achaar" in ask) ^ ("Ayaan's exam" in ask), "exactly one of the open loops"
     assert "cricket" in b
     assert "NEVER RAISE THESE UNPROMPTED" in b and "money worry" in b
     # the sensitive fact must not appear as something to weave in
@@ -66,9 +67,9 @@ def test_briefing_carries_exactly_one_callback_and_hides_sensitive_facts():
 def test_closing_a_loop_retires_it_as_a_callback():
     pid = _parent()
     memory.open_loop(pid, "making achaar", "was going to make it")
-    assert "making achaar" in memory.briefing(pid)
+    assert "making achaar" in memory.callback(pid)
     memory.close_loop(pid, "making achaar", "made it, too spicy")
-    assert "ASK ABOUT THIS ONCE" not in memory.briefing(pid)
+    assert memory.callback(pid) == ""
 
 
 def test_recently_used_facts_yield_to_fresher_ones():
@@ -110,8 +111,14 @@ def test_briefing_reaches_the_persona_and_the_tools_exist():
     with session() as s:
         parent = s.get(Parent, pid)
         family = s.get(Family, parent.family_id)
-    prompt = checkin_prompt(parent, family, memory.briefing(pid))
+    prompt = checkin_prompt(parent, family, memory.briefing(pid), memory.callback(pid))
     assert "making achaar" in prompt and "close_loop" in prompt
+    # the callback must sit beside the greeting, not below the numbered agenda: buried
+    # under the checklist the model works through the agenda and never reaches it
+    lines = prompt.splitlines()
+    ask_at = next(i for i, l in enumerate(lines) if "making achaar" in l)
+    agenda_at = next(i for i, l in enumerate(lines) if l.startswith("1. How did they sleep"))
+    assert ask_at < agenda_at, "the callback must come before the checklist"
     names = {t["name"] for t in CHECKIN_TOOLS}
     assert {"remember_person", "remember_fact", "open_loop", "close_loop"} <= names
 
@@ -137,8 +144,8 @@ async def test_tool_calls_write_the_graph_through_a_live_call():
     assert kinds["Ayaan"] == "person" and kinds["market day"] == "routine"
     assert kinds["making achaar"] == "open_loop"
     assert "Knee pain since yesterday" in kinds and kinds["Knee pain since yesterday"] == "health_thread"
-    b = memory.briefing(pid)
-    assert "OPEN HEALTH THREADS" in b and "making achaar" in b
+    assert "OPEN HEALTH THREADS" in memory.briefing(pid)
+    assert "making achaar" in memory.callback(pid)
 
 
 async def test_a_bad_memory_write_does_not_derail_the_call():

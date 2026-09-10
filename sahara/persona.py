@@ -108,7 +108,7 @@ SCREEN_TOOLS = [{
 
 
 # ------------------------------------------------------------- prompts ---
-def checkin_prompt(parent: Parent, family: Family, briefing: str = "") -> str:
+def checkin_prompt(parent: Parent, family: Family, briefing: str = "", callback: str = "") -> str:
     meds = ", ".join(f"{m.get('name')} ({m.get('when', 'daily')})" for m in parent.meds()) or "none listed"
     lang = language_name(parent.language)
     return f"""You are Sahara, a warm, unhurried companion who telephones {parent.name} every morning on behalf of
@@ -119,6 +119,7 @@ LANGUAGE: speak only {lang} for the whole call, in the simple, respectful regist
 sentences. One question at a time. Wait for the answer; elders speak slowly and silence is not a cue to fill.
 
 OPEN with exactly this notice, then a greeting by name: "{recording_notice(parent, family)}"
+{callback}
 
 THE CONVERSATION (about two to three minutes, no more):
 1. How did they sleep? How are they feeling this morning?

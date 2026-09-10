@@ -117,7 +117,7 @@ def parent_memory(pid: int):
     with session() as s:
         if s.get(Parent, pid) is None:
             raise HTTPException(404, "no such parent")
-    return {**memory.graph(pid), "briefing": memory.briefing(pid)}
+    return {**memory.graph(pid), "briefing": memory.briefing(pid), "callback": memory.callback(pid)}
 
 
 @app.delete("/api/parents/{pid}/memory/{label}", dependencies=[Depends(operator)])

@@ -147,7 +147,6 @@ def briefing(parent_id: int, max_facts: int = MAX_FACTS) -> str:
         if a and b:
             rel.setdefault(a.id, []).append(f"{e.kind.lower().replace('_', ' ')} {b.label}")
 
-    loops = [n for n in nodes if n.kind == "open_loop"]
     hidden = [n for n in nodes if n.sensitivity in ("sensitive", "never_volunteer")]
     threads = [n for n in nodes if n.kind == "health_thread"]
     facts = [n for n in nodes if n.kind not in ("open_loop", "health_thread")
@@ -155,7 +154,6 @@ def briefing(parent_id: int, max_facts: int = MAX_FACTS) -> str:
 
     facts.sort(key=lambda n: _salience(n, now), reverse=True)
     chosen = facts[:max_facts]
-    callback = max(loops, key=lambda n: _salience(n, now)) if loops else None
 
     lines: list[str] = []
     if chosen:
@@ -172,14 +170,28 @@ def briefing(parent_id: int, max_facts: int = MAX_FACTS) -> str:
             days = (now - n.last_confirmed).days
             when = "mentioned today" if days == 0 else f"last mentioned {days} day{'s' if days != 1 else ''} ago"
             lines.append(f"- {n.label} ({when}){': ' + n.detail if n.detail else ''}")
-    if callback:
-        lines.append(f"ASK ABOUT THIS ONCE, EARLY, THEN LET IT GO: {callback.label}"
-                     f"{' — ' + callback.detail if callback.detail else ''}. "
-                     f"Then call close_loop for it.")
     if hidden:
         lines.append("NEVER RAISE THESE UNPROMPTED (respond warmly if they bring it up, but do not ask): "
                      + ", ".join(n.label for n in hidden) + ".")
     return "\n".join(lines)
+
+
+def callback(parent_id: int) -> str:
+    """The one open loop to ask about, phrased for the opening of the call. Kept separate
+    from the knowledge block because it has to sit beside the greeting: buried below the
+    checklist, the model works through the agenda and never reaches it."""
+    now = utcnow()
+    with session() as s:
+        loops = s.exec(select(MemoryNode).where(
+            MemoryNode.parent_id == parent_id, MemoryNode.kind == "open_loop",
+            MemoryNode.status == "active")).all()
+    if not loops:
+        return ""
+    n = max(loops, key=lambda x: _salience(x, now))
+    detail = f" — {n.detail}" if n.detail else ""
+    return (f"Right after the greeting, before anything else, ask warmly about this one thing: "
+            f"{n.label}{detail}. Ask it once, listen, then call close_loop with what they say and "
+            f"move on. Do not raise it again.")
 
 
 def mark_used(parent_id: int, text: str) -> None:

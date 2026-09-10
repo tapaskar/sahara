@@ -91,9 +91,9 @@ class LiveCall:
             opening = "Answer the call and ask who is calling."
         else:
             memory.ensure_seeded(self.parent, self.family.child_name)
-            brief = memory.briefing(self.parent.id)
+            brief, ask = memory.briefing(self.parent.id), memory.callback(self.parent.id)
             memory.mark_used(self.parent.id, brief)
-            prompt, tools = checkin_prompt(self.parent, self.family, brief), CHECKIN_TOOLS
+            prompt, tools = checkin_prompt(self.parent, self.family, brief, ask), CHECKIN_TOOLS
             opening = f"Begin with the recording notice, then greet {self.parent.name} by name."
         with session() as s:
             c = s.get(Call, self.call_id); c.status = "in_progress"; c.engine = engine.name; s.add(c); s.commit()
