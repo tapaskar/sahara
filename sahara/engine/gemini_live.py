@@ -60,27 +60,35 @@ class GeminiLiveEngine(VoiceEngine):
                 types.FunctionResponse(id=call_id, name=name, response=result)])
 
     async def _receive(self):
+        """`session.receive()` yields ONE model turn and then stops — the SDK breaks out of
+        its own loop on turn_complete. Re-enter it for every turn, or the call ends the
+        instant Sahara stops speaking and the parent never gets to answer."""
         try:
-            async for msg in self._session.receive():
-                sc = msg.server_content
-                if msg.data:
-                    self.emit("audio", msg.data)
-                if sc is not None:
-                    if sc.input_transcription and sc.input_transcription.text:
-                        self.emit("transcript_in", sc.input_transcription.text,
-                                  final=bool(getattr(sc.input_transcription, "finished", True)))
-                    if sc.output_transcription and sc.output_transcription.text:
-                        # streams in word-sized chunks; the turn closes on turn_complete
-                        self.emit("transcript_out", sc.output_transcription.text, final=False)
-                    if sc.interrupted:
-                        self.emit("interrupted")
-                    if sc.turn_complete:
-                        self.emit("turn_complete")
-                if msg.tool_call:
-                    for fc in msg.tool_call.function_calls or []:
-                        self.emit("tool_call", {"id": fc.id, "name": fc.name, "args": dict(fc.args or {})})
-                if msg.go_away:
-                    log.warning("live session go_away: %s", msg.go_away)
+            while True:
+                turn_had_messages = False
+                async for msg in self._session.receive():
+                    turn_had_messages = True
+                    sc = msg.server_content
+                    if msg.data:
+                        self.emit("audio", msg.data)
+                    if sc is not None:
+                        if sc.input_transcription and sc.input_transcription.text:
+                            self.emit("transcript_in", sc.input_transcription.text,
+                                      final=bool(getattr(sc.input_transcription, "finished", True)))
+                        if sc.output_transcription and sc.output_transcription.text:
+                            # streams in word-sized chunks; the turn closes on turn_complete
+                            self.emit("transcript_out", sc.output_transcription.text, final=False)
+                        if sc.interrupted:
+                            self.emit("interrupted")
+                        if sc.turn_complete:
+                            self.emit("turn_complete")
+                    if msg.tool_call:
+                        for fc in msg.tool_call.function_calls or []:
+                            self.emit("tool_call", {"id": fc.id, "name": fc.name, "args": dict(fc.args or {})})
+                    if msg.go_away:
+                        log.warning("live session go_away: %s", msg.go_away)
+                if not turn_had_messages:
+                    break                      # the session itself closed
         except asyncio.CancelledError:
             raise
         except Exception as e:

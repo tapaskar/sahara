@@ -227,3 +227,48 @@ async def test_streamed_chunks_become_one_turn():
                              "text": "नमस्ते, मैं सहारा हूँ। यह कॉल रिकॉर्ड हो रही है"}
     assert live.turns[1]["text"] == "ठीक हूँ बेटा"
     assert live.turns[2]["text"] == "अच्छा"
+
+
+async def test_the_engine_survives_the_end_of_a_turn():
+    """session.receive() yields ONE model turn and stops. If the engine does not re-enter
+    it, the call ends the instant Sahara stops speaking and the parent never gets to
+    answer — the whole product is a monologue."""
+    from types import SimpleNamespace as NS
+
+    from sahara.engine.gemini_live import GeminiLiveEngine
+
+    def content(**kw):
+        fields = dict(input_transcription=None, output_transcription=None,
+                      interrupted=False, turn_complete=False)
+        fields.update(kw)
+        return NS(data=None, server_content=NS(**fields), tool_call=None, go_away=None)
+
+    # turn 1: Sahara greets. turn 2: the parent answers and Sahara replies. then closed.
+    turns = [
+        [content(output_transcription=NS(text="नमस्ते")), content(turn_complete=True)],
+        [content(input_transcription=NS(text="ठीक हूँ", finished=True)),
+         content(output_transcription=NS(text="अच्छा")), content(turn_complete=True)],
+        [],
+    ]
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = 0
+
+        async def receive(self):
+            batch = turns[self.calls] if self.calls < len(turns) else []
+            self.calls += 1
+            for m in batch:
+                yield m
+
+    eng = GeminiLiveEngine()
+    eng._session = FakeSession()
+    await eng._receive()
+
+    events = []
+    while not eng.queue.empty():
+        events.append(eng.queue.get_nowait())
+    kinds = [e.type for e in events]
+    assert kinds.count("turn_complete") == 2, "both turns must be seen, not just the first"
+    assert any(e.type == "transcript_in" for e in events), "the parent's turn must arrive"
+    assert kinds.count("end") == 1 and kinds[-1] == "end", "end only once the session closes"
