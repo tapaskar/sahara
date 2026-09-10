@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sahara — a voice for the ones you love</title>
+<style>
+  :root{
+    --ink:#2a2420; --dim:#8a7f74; --faint:#b8ab9c; --line:#eadfce; --line2:#f0e8db;
+    --bg:#fbf6ee; --panel:#fffdf9; --panel2:#faf4ea;
+    --accent:#b5642f; --accent-soft:#f3e2d2; --gold:#c99a5b;
+    --ok:#5c7a52; --ok-bg:#eef2e6; --warn:#b07a2a; --warn-bg:#f6ecd8;
+    --urgent:#b5482f; --urgent-bg:#f6e2da; --emerg:#9a2f22; --emerg-bg:#f3d9d2;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:
+      radial-gradient(1200px 600px at 80% -10%, #fdf0e2 0%, rgba(253,240,226,0) 60%),
+      radial-gradient(900px 500px at -5% 10%, #f7ede0 0%, rgba(247,237,224,0) 55%),
+      var(--bg);
+    color:var(--ink);
+    font:17px/1.7 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:0 22px}
+  h1,h2,h3{font-weight:500;letter-spacing:.2px}
+  .sans{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+
+  /* hero */
+  header.hero{padding:76px 0 54px;text-align:center}
+  .mark{font-size:13px;letter-spacing:.42em;text-transform:uppercase;color:var(--gold);
+    font-family:system-ui,sans-serif;font-weight:600}
+  .hero h1{font-size:44px;line-height:1.18;margin:22px auto 16px;max-width:16em}
+  .hero h1 em{font-style:italic;color:var(--accent)}
+  .hero p{font-size:20px;color:var(--dim);max-width:30em;margin:0 auto;font-style:italic}
+  .rule{width:54px;height:1px;background:var(--gold);margin:34px auto 0;opacity:.7}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;
+    box-shadow:0 1px 0 #fff inset, 0 18px 40px -30px rgba(90,60,30,.4);padding:30px}
+  .card + .card{margin-top:22px}
+  label{display:block;font-family:system-ui,sans-serif;font-size:12.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--dim);margin:0 0 6px;font-weight:600}
+  .field{margin-bottom:20px}
+  input,select,textarea{width:100%;border:1px solid var(--line);border-radius:11px;
+    padding:13px 15px;font:inherit;background:var(--panel2);color:var(--ink);transition:.15s}
+  input:focus,select,textarea:focus{outline:none;border-color:var(--gold);background:#fff;
+    box-shadow:0 0 0 4px rgba(201,154,91,.12)}
+  textarea{resize:vertical;min-height:64px}
+  .sentence{font-size:20px;line-height:2.1;color:var(--ink)}
+  .sentence .inl{display:inline;width:auto;min-width:120px;border:none;border-bottom:1.5px solid var(--gold);
+    border-radius:0;background:transparent;padding:1px 6px;font:inherit;font-style:italic;color:var(--accent);
+    text-align:center}
+  .sentence .inl:focus{box-shadow:none;background:var(--accent-soft);border-radius:6px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .row .field{flex:1 1 200px}
+  button{font-family:system-ui,sans-serif;font-weight:600;border:0;border-radius:12px;
+    padding:14px 26px;font-size:15px;cursor:pointer;transition:.15s;letter-spacing:.02em}
+  .go{background:var(--accent);color:#fff;box-shadow:0 10px 24px -12px rgba(181,100,47,.8)}
+  .go:hover{background:#a2571f;transform:translateY(-1px)}
+  .go:disabled{opacity:.5;transform:none;cursor:default}
+  .ghost{background:transparent;color:var(--dim);border:1px solid var(--line)}
+  .ghost:hover{color:var(--ink);border-color:var(--gold)}
+  .hint{font-family:system-ui,sans-serif;font-size:13px;color:var(--faint);margin-top:10px}
+
+  section{padding:14px 0 40px}
+  .hidden{display:none}
+  .eyebrow{font-family:system-ui,sans-serif;font-size:12px;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--gold);font-weight:600;margin-bottom:10px}
+
+  /* call */
+  .call-head{display:flex;align-items:center;gap:14px;margin-bottom:4px}
+  .call-head h2{font-size:24px;margin:0}
+  .who{font-family:system-ui,sans-serif;font-size:13px;color:var(--dim);margin-bottom:22px}
+  .thread{display:flex;flex-direction:column;gap:14px;margin-bottom:22px}
+  .bubble{max-width:78%;padding:13px 17px;border-radius:16px;font-size:16.5px;line-height:1.6;
+    animation:rise .35s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .sahara{align-self:flex-start;background:var(--panel2);border:1px solid var(--line2);
+    border-bottom-left-radius:5px}
+  .parent{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
+  .speaker{font-family:system-ui,sans-serif;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--gold);margin:0 4px 5px;font-weight:600}
+  .parent-wrap{align-self:flex-end;display:flex;flex-direction:column;align-items:flex-end}
+  .sahara-wrap{align-self:flex-start;display:flex;flex-direction:column}
+  .facts{align-self:flex-start;font-family:system-ui,sans-serif;font-size:12px;color:var(--dim);
+    font-style:italic;padding-left:4px}
+  .typing{display:inline-flex;gap:4px;padding:14px 18px}
+  .typing i{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:blink 1.2s infinite both}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.3}30%{opacity:1}}
+  .composer{display:flex;gap:12px;align-items:flex-end}
+  .composer textarea{flex:1;min-height:52px;border-radius:14px}
+
+  /* report */
+  .esc{border-radius:16px;padding:20px 22px;margin-bottom:22px;border:1px solid}
+  .esc h3{margin:0 0 6px;font-size:19px}
+  .esc .lvl{font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;padding:4px 11px;border-radius:999px;display:inline-block;margin-bottom:12px}
+  .esc p{margin:6px 0;font-size:16px}
+  .esc .act{font-style:italic;color:var(--dim)}
+  .e-none{background:var(--ok-bg);border-color:#d5e0c6;color:#3f5636}
+  .e-none .lvl{background:var(--ok);color:#fff}
+  .e-notify{background:var(--warn-bg);border-color:#ecdcbb;color:#7a5518}
+  .e-notify .lvl{background:var(--warn);color:#fff}
+  .e-urgent{background:var(--urgent-bg);border-color:#eccabd;color:#8a3320}
+  .e-urgent .lvl{background:var(--urgent);color:#fff}
+  .e-emergency{background:var(--emerg-bg);border-color:#e4b8ad;color:#7c241a}
+  .e-emergency .lvl{background:var(--emerg);color:#fff}
+
+  .wa{background:#f6faf4;border:1px solid #dcebd6;border-radius:16px;padding:20px 22px}
+  .wa .from{font-family:system-ui,sans-serif;font-size:12px;color:#5c7a52;font-weight:600;margin-bottom:10px}
+  .wa .msg{white-space:pre-wrap;font-size:16px;line-height:1.65}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}.hero h1{font-size:34px}.sentence{font-size:18px}}
+  .mem li{list-style:none;padding:9px 0;border-bottom:1px solid var(--line2);
+    font-family:system-ui,sans-serif;font-size:14px;display:flex;gap:10px;align-items:baseline}
+  .mem ul{margin:0;padding:0}
+  .chip{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:6px;
+    background:var(--accent-soft);color:var(--accent);font-weight:600;flex:none}
+  .chip.warn{background:var(--warn-bg);color:var(--warn)}
+  .chip.urgent{background:var(--urgent-bg);color:var(--urgent)}
+  .callback{background:var(--panel2);border:1px dashed var(--gold);border-radius:14px;padding:16px 18px;
+    font-style:italic;color:var(--ink);margin-top:16px}
+  .callback b{font-style:normal;font-family:system-ui,sans-serif;font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--gold);display:block;margin-bottom:6px;font-weight:600}
+  footer{text-align:center;padding:30px 0 60px;color:var(--faint);font-size:13px;
+    font-family:system-ui,sans-serif}
+  .err{color:var(--urgent);font-family:system-ui,sans-serif;font-size:14px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="mark">Sahara</div>
+    <h1>Every morning, a warm voice checks on the ones you <em>can't be with</em>.</h1>
+    <p>Speak with her yourself. See what she'd remember, and what she'd tell you.</p>
+    <div class="rule"></div>
+  </header>
+
+  <!-- SETUP -->
+  <section id="setup">
+    <div class="card">
+      <div class="eyebrow">Set the scene</div>
+      <div class="sentence">
+        You are <input class="inl" id="child" placeholder="your name" value="Ravi">,
+        and you want gentle daily updates on
+        <input class="inl" id="parent" placeholder="their name" value="Sushila Devi">,
+        who is your
+        <input class="inl" id="relation" placeholder="mother" value="mother">.
+      </div>
+
+      <div class="row" style="margin-top:26px">
+        <div class="field">
+          <label>Her language</label>
+          <select id="language">
+            <option value="hi-IN">Hindi</option>
+            <option value="bn-IN">Bengali</option>
+            <option value="ta-IN">Tamil</option>
+            <option value="te-IN">Telugu</option>
+            <option value="mr-IN">Marathi</option>
+            <option value="gu-IN">Gujarati</option>
+            <option value="kn-IN">Kannada</option>
+            <option value="ml-IN">Malayalam</option>
+            <option value="pa-IN">Punjabi</option>
+            <option value="en-IN">English</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>A medicine she takes (optional)</label>
+          <input id="med" placeholder="e.g. Amlodipine, mornings">
+        </div>
+      </div>
+      <div class="field">
+        <label>Anything worth knowing about her (optional)</label>
+        <textarea id="notes" placeholder="Lives alone in Cuttack, loves cricket, misses her grandchildren"></textarea>
+      </div>
+      <button class="go" id="begin">Begin the morning call &nbsp;→</button>
+      <div class="hint">You'll play her part — answer as she might. Sahara speaks first.</div>
+      <div class="err hidden" id="setup-err"></div>
+    </div>
+  </section>
+
+  <!-- CALL -->
+  <section id="call" class="hidden">
+    <div class="card">
+      <div class="call-head"><div class="eyebrow" style="margin:0">The morning call</div></div>
+      <div class="who" id="callwho"></div>
+      <div class="thread" id="thread"></div>
+      <div class="composer">
+        <textarea id="line" placeholder="Answer as she would…" rows="1"></textarea>
+        <button class="go" id="send">Say</button>
+      </div>
+      <div class="hint">When you're done, end the call to see what Sahara took away from it.</div>
+      <div style="margin-top:14px"><button class="ghost" id="endcall">End the call &amp; see the report</button></div>
+      <div class="err hidden" id="call-err"></div>
+    </div>
+  </section>
+
+  <!-- REPORT -->
+  <section id="report" class="hidden">
+    <div class="eyebrow">After the call</div>
+    <div id="esc"></div>
+    <div class="card" style="margin-bottom:22px">
+      <div class="wa">
+        <div class="from">WhatsApp to <span id="whoto"></span></div>
+        <div class="msg" id="wamsg"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <div class="eyebrow">What she remembers now</div>
+        <ul class="mem" id="memlist"></ul>
+        <div class="callback hidden" id="cbwrap"><b>Tomorrow, she'll open with</b><span id="cb"></span></div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">What Sahara noticed</div>
+        <ul class="mem" id="factlist"></ul>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:30px">
+      <button class="ghost" id="again">Try another conversation</button>
+    </div>
+  </section>
+
+  <footer>
+    A prototype. No real calls are placed; the dialogue is live, in her language.
+  </footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let CALL=null, CHILD="", PARENT="";
+async function api(path,body){
+  const r=await fetch('/api'+path,{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.detail||j.error||r.statusText);
+  return j;
+}
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function bubble(who,text){
+  const wrap=document.createElement('div');
+  wrap.className=who==='parent'?'parent-wrap':'sahara-wrap';
+  const name=who==='parent'?PARENT:'Sahara';
+  wrap.innerHTML=`<div class="speaker">${esc(name)}</div>`+
+    `<div class="bubble ${who}">${esc(text)}</div>`;
+  $('#thread').appendChild(wrap);
+  wrap.scrollIntoView({behavior:'smooth',block:'end'});
+  return wrap;
+}
+function typing(){
+  const w=document.createElement('div');w.className='sahara-wrap';w.id='typing';
+  w.innerHTML=`<div class="speaker">Sahara</div><div class="bubble sahara typing"><i></i><i></i><i></i></div>`;
+  $('#thread').appendChild(w);w.scrollIntoView({behavior:'smooth',block:'end'});
+}
+function untype(){const t=$('#typing');if(t)t.remove();}
+function showFacts(facts){
+  if(!facts||!facts.length)return;
+  const last=facts[facts.length-1];
+  const el=document.createElement('div');el.className='facts';
+  el.textContent='• noted: '+last.detail;
+  $('#thread').appendChild(el);
+}
+
+$('#begin').onclick=async()=>{
+  $('#setup-err').classList.add('hidden');
+  const btn=$('#begin');btn.disabled=true;btn.textContent='Connecting…';
+  CHILD=$('#child').value.trim()||'you'; PARENT=$('#parent').value.trim()||'your parent';
+  const med=$('#med').value.trim();
+  try{
+    const r=await api('/try/start',{
+      child_name:CHILD, parent_name:PARENT, relation:$('#relation').value.trim()||'parent',
+      language:$('#language').value, notes:$('#notes').value.trim(),
+      medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
+    });
+    CALL=r.call_id;
+    $('#setup').classList.add('hidden');
+    $('#call').classList.remove('hidden');
+    $('#callwho').textContent=`You are ${CHILD}. Answer as ${PARENT} would.`;
+    bubble('sahara', r.opening);
+    $('#call').scrollIntoView({behavior:'smooth'});
+    $('#line').focus();
+  }catch(e){
+    $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
+  }finally{ btn.disabled=false; btn.textContent='Begin the morning call  →'; }
+};
+
+async function send(){
+  const t=$('#line').value.trim(); if(!t||!CALL)return;
+  $('#line').value=''; autosize();
+  bubble('parent',t);
+  $('#send').disabled=true; typing();
+  try{
+    const r=await api(`/try/${CALL}/say`,{text:t});
+    untype();
+    if(r.reply) bubble('sahara',r.reply);
+    showFacts(r.facts);
+    $('#call-err').classList.add('hidden');
+  }catch(e){
+    untype();
+    const busy=/overloaded|quota|busy|try again/i.test(e.message);
+    $('#call-err').textContent=busy?('The line is busy for a moment — '+e.message+' Your reply is saved; press Say to try again.'):e.message;
+    $('#call-err').classList.remove('hidden');
+  }
+  finally{ $('#send').disabled=false; $('#line').focus(); }
+}
+$('#send').onclick=send;
+$('#line').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+function autosize(){const l=$('#line');l.style.height='auto';l.style.height=Math.min(140,l.scrollHeight)+'px';}
+$('#line').addEventListener('input',autosize);
+
+const LEVEL={
+  none:{t:'A calm morning',c:'e-none'},
+  notify:{t:'Worth a call',c:'e-notify'},
+  urgent:{t:'Reach her today',c:'e-urgent'},
+  emergency:{t:'Call her now',c:'e-emergency'}
+};
+$('#endcall').onclick=async()=>{
+  if(!CALL)return;
+  $('#endcall').disabled=true;$('#endcall').textContent='Preparing the report…';
+  try{
+    const r=await api(`/try/${CALL}/end`,{});
+    renderReport(r);
+    $('#call').classList.add('hidden');
+    $('#report').classList.remove('hidden');
+    $('#report').scrollIntoView({behavior:'smooth'});
+  }catch(e){ $('#call-err').textContent=e.message; $('#call-err').classList.remove('hidden'); }
+  finally{ $('#endcall').disabled=false; $('#endcall').textContent='End the call & see the report'; }
+};
+
+function renderReport(r){
+  const e=r.escalation||{level:'none'};
+  const L=LEVEL[e.level]||LEVEL.none;
+  $('#esc').innerHTML=`<div class="card"><div class="esc ${L.c}">
+    <span class="lvl">${esc(e.level)}</span>
+    <h3>${esc(e.headline||L.t)}</h3>
+    ${e.reason?`<p>${esc(e.reason)}</p>`:''}
+    ${e.recommended_action?`<p class="act">${esc(e.recommended_action)}</p>`:''}
+  </div></div>`;
+
+  $('#whoto').textContent=CHILD;
+  const msg=(r.summary&&r.summary.child_message)||'—';
+  $('#wamsg').textContent=msg;
+
+  const nodes=(r.memory&&r.memory.nodes||[]).filter(n=>n.status==='active');
+  const order={health_thread:0,open_loop:1,person:2,medication:3};
+  nodes.sort((a,b)=>(order[a.kind]??9)-(order[b.kind]??9));
+  $('#memlist').innerHTML=nodes.map(n=>{
+    const sev=n.severity==='urgent'?'urgent':n.severity==='warn'?'warn':'';
+    const kind=n.kind.replace('_',' ');
+    return `<li><span class="chip ${sev}">${esc(kind)}</span><span>${esc(n.detail||n.label)}</span></li>`;
+  }).join('')||'<li style="color:var(--faint)">Nothing yet.</li>';
+
+  if(r.callback){ $('#cb').textContent=cbText(r.callback); $('#cbwrap').classList.remove('hidden'); }
+  else $('#cbwrap').classList.add('hidden');
+
+  const facts=r.obs||[];
+  $('#factlist').innerHTML=facts.map(o=>{
+    const sev=o.severity==='urgent'?'urgent':o.severity==='warn'?'warn':'';
+    return `<li><span class="chip ${sev}">${esc(o.kind)}</span><span>${esc(o.detail)}</span></li>`;
+  }).join('')||'<li style="color:var(--faint)">A quiet call.</li>';
+}
+function cbText(instruction){
+  // surface the human part of the callback instruction, not the tooling
+  let m=instruction.match(/follow up on what she told you (?:yesterday|last time)\s*[—-]\s*([^.]+)/i);
+  if(m) return '“'+m[1].trim()+'” — how is it today?';
+  m=instruction.match(/ask warmly about this one thing:\s*([^.]+?)(?:\s*—|\.)/i);
+  if(m) return '“'+m[1].trim()+'” — did it happen?';
+  return instruction;
+}
+
+$('#again').onclick=()=>{
+  CALL=null;
+  $('#thread').innerHTML=''; $('#report').classList.add('hidden');
+  $('#setup').classList.remove('hidden');
+  window.scrollTo({top:0,behavior:'smooth'});
+};
+</script>
+</body>
+</html>

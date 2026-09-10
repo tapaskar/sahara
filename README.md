@@ -129,6 +129,8 @@ sahara/
   persona.py      prompts, tools, CallSummary and ScreenDecision schemas, recording notices
   scam.py         multilingual scam heuristics
   memory.py       per-parent knowledge graph: remember, briefing, forget
+  escalate.py     post-call escalation reasoning with a deterministic floor
+  engine/text_chat.py  text-mode Sahara for the /try dialogue simulator
   summarize.py    Gemini summary with typed output; offline rules
   notify.py       WhatsApp adapters
   engine/         gemini_live.py, cascade.py, null.py
@@ -136,7 +138,7 @@ sahara/
   calls.py        start, run, finish a call; screening; retries; simulation
   scheduler.py    the minute tick
   web/app.py      webhooks, WebSocket, operator API, dashboard
-  web/static/     index.html (the desk), mic.html (browser mic client)
+  web/static/     index.html (desk), mic.html (browser mic), simulator.html (/try demo)
 scripts/seed.py   scripts/fake_phone.py   deploy/cloud_run.sh   tests/
 ```
 

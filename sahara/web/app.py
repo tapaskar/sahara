@@ -61,6 +61,11 @@ def mic():
     return FileResponse(STATIC / "mic.html")
 
 
+@app.get("/try")
+def try_page():
+    return FileResponse(STATIC / "simulator.html")
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "version": __version__, "offline": config.OFFLINE, "engine": config.VOICE_ENGINE,
@@ -207,6 +212,75 @@ def mic_call(pid: int):
         s.add(call); s.commit(); s.refresh(call)
         return {"call_id": call.id, "parent": parent.name, "language": parent.language,
                 "engine": call.engine}
+
+
+class TryStartIn(BaseModel):
+    child_name: str                       # "you are ___"
+    parent_name: str                      # "...health updates of ___"
+    relation: str = "parent"              # "...who is your ___"
+    language: str = "hi-IN"
+    notes: str = ""
+    medications: list[dict] = []
+
+
+@app.post("/api/try/start")
+async def try_start(body: TryStartIn):
+    from ..engine.text_chat import ModelBusy
+    if body.language not in LANGUAGES:
+        raise HTTPException(400, f"language must be one of {list(LANGUAGES)}")
+    with session() as s:
+        fam = Family(child_name=body.child_name.strip() or "the child", child_phone="+demo")
+        s.add(fam); s.commit(); s.refresh(fam)
+        note = body.notes.strip()
+        rel = body.relation.strip() or "parent"
+        note = (f"{body.parent_name.strip()} is the {rel} of {body.child_name.strip()}. " + note).strip()
+        p = Parent(family_id=fam.id, name=body.parent_name.strip() or "your parent",
+                   phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
+                   medications=json.dumps(body.medications), notes=note)
+        s.add(p); s.commit(); s.refresh(p)
+    memory.ensure_seeded(p, fam.child_name)
+    try:
+        call = await calls.open_sim(p.id)
+    except ModelBusy as e:
+        raise HTTPException(503, str(e))
+    return {"parent_id": p.id, "call_id": call.id, "opening": calls.LiveCall(call.id).call.turns()[-1]["text"]}
+
+
+class TrySayIn(BaseModel):
+    text: str
+
+
+@app.post("/api/try/{call_id}/say")
+async def try_say(call_id: int, body: TrySayIn):
+    from ..engine.text_chat import ModelBusy
+    with session() as s:
+        if s.get(Call, call_id) is None:
+            raise HTTPException(404, "no such call")
+    try:
+        return await calls.say_sim(call_id, body.text)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    except ModelBusy as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post("/api/try/{call_id}/end")
+async def try_end(call_id: int):
+    with session() as s:
+        c = s.get(Call, call_id)
+        if c is None:
+            raise HTTPException(404, "no such call")
+        pid = c.parent_id
+    await calls.close_sim(call_id)
+    return {**get_call_public(call_id), "memory": memory.graph(pid), "callback": memory.callback(pid)}
+
+
+def get_call_public(cid: int) -> dict:
+    with session() as s:
+        c = s.get(Call, cid)
+        return {"id": c.id, "status": c.status, "turns": c.turns(), "obs": c.obs(),
+                "summary": json.loads(c.summary) if c.summary else None,
+                "escalation": json.loads(c.escalation) if c.escalation else None}
 
 
 class SimulateIn(BaseModel):

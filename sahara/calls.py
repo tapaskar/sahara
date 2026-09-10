@@ -15,6 +15,7 @@ from sqlmodel import select
 from . import config, escalate, memory, notify, transcheck
 from .db import session
 from .engine import make_engine
+from .engine import text_chat
 from .models import Alert, Call, Family, Parent, utcnow
 from .persona import (CHECKIN_TOOLS, SCREEN_TOOLS, CallSummary, ScreenDecision, checkin_prompt,
                       recording_notice, screener_prompt)
@@ -128,6 +129,14 @@ class LiveCall:
             self.turns.append(turn)
         if final:
             self._flag_if_drifted(self.turns[-1])
+
+    def _persist_turns(self):
+        with session() as s:
+            c = s.get(Call, self.call_id)
+            c.transcript = json.dumps([{"who": t["who"], "text": t["text"]} for t in self.turns],
+                                      ensure_ascii=False)
+            c.observations = json.dumps(self.obs, ensure_ascii=False)
+            s.add(c); s.commit()
 
     async def on_turn_end(self):
         """A spoken turn finished; stop merging into it."""
@@ -305,6 +314,68 @@ def due_retries(now: datetime) -> list[Call]:
 
 
 # ---------------------------------------------------------- simulation ---
+async def open_sim(parent_id: int) -> Call:
+    """Start a text-simulated check-in: a real call row, seeded memory, Sahara's opening line
+    already spoken — the tester types the parent's replies from there."""
+    from .persona import spoken_name
+    with session() as s:
+        parent = s.get(Parent, parent_id)
+        if parent is None or not parent.active:
+            raise ValueError("no such active parent")
+        family = s.get(Family, parent.family_id)
+        call = Call(parent_id=parent.id, kind="checkin", status="in_progress",
+                    provider="sim", engine="text", started_at=utcnow())
+        s.add(call); s.commit(); s.refresh(call)
+    memory.ensure_seeded(parent, family.child_name_native or family.child_name)
+    lc = LiveCall(call.id)
+    brief, ask = memory.briefing(parent_id), memory.callback(parent_id)
+    memory.mark_used(parent_id, brief)
+    lc._sim_prompt = checkin_prompt(parent, family, brief, ask)
+    opening = await text_chat.respond(
+        lc._sim_prompt, CHECKIN_TOOLS,
+        [{"who": "parent", "text": "(The call has connected. Begin with the recording notice, "
+          "then greet them by name and start warmly.)"}], lc.on_tool_call)
+    opening = opening or recording_notice(parent, family)
+    lc.turns.append({"who": "sahara", "text": opening.strip(), "final": True})
+    lc._persist_turns()
+    return s.get(Call, call.id) if False else call
+
+
+async def say_sim(call_id: int, parent_line: str) -> dict:
+    """One tester turn: append the parent's line, get Sahara's real reply, persist."""
+    lc = LiveCall(call_id)
+    if lc.call.status != "in_progress":
+        raise ValueError("this call has ended")
+    family = None
+    with session() as s:
+        parent = s.get(Parent, lc.parent.id); family = s.get(Family, parent.family_id)
+    brief, ask = memory.briefing(lc.parent.id), memory.callback(lc.parent.id)
+    prompt = checkin_prompt(parent, family, brief, ask)
+    lc.turns = [{"who": t["who"], "text": t["text"], "final": True} for t in lc.call.turns()]
+    lc.obs = list(lc.call.obs())
+    lc.turns.append({"who": "parent", "text": parent_line.strip(), "final": True})
+    lc._persist_turns()                        # save her line first — a model failure must not lose it
+    reply = await text_chat.respond(prompt, CHECKIN_TOOLS, lc.turns, lc.on_tool_call)
+    if reply.strip():
+        lc.turns.append({"who": "sahara", "text": reply.strip(), "final": True})
+    lc._persist_turns()
+    return {"reply": reply.strip(), "facts": lc.obs}
+
+
+async def close_sim(call_id: int) -> Call:
+    """End the simulated call: run summary + escalation + notification, exactly as a real
+    call's finish does."""
+    lc = LiveCall(call_id)
+    lc.turns = [{"who": t["who"], "text": t["text"], "final": True} for t in lc.call.turns()]
+    lc.obs = list(lc.call.obs())
+    with session() as s:
+        c = s.get(Call, call_id); c.status = "completed"; c.ended_at = utcnow()
+        c.duration_s = max(1, int((c.ended_at - (c.started_at or c.ended_at)).total_seconds()))
+        s.add(c); s.commit()
+    await lc._notify_checkin()
+    return lc.call
+
+
 async def simulate_checkin(parent_id: int, parent_lines: list[str]) -> Call:
     """Offline: a scripted parent, the rule-based summary, a console WhatsApp. Exercises the
     whole data path without audio, telephony or Gemini."""
