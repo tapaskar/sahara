@@ -191,7 +191,16 @@ async def test_engine_marks_spoken_chunks_unfinished():
     msgs.append(content(turn_complete=True))
 
     class FakeSession:
+        """One turn, then a closed session — receive() must not replay, or the engine's
+        re-entry loop spins forever."""
+
+        def __init__(self):
+            self.done = False
+
         async def receive(self):
+            if self.done:
+                return
+            self.done = True
             for m in msgs:
                 yield m
 
