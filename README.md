@@ -46,11 +46,33 @@ end of week four, are the whole pilot.
 pip install -e ".[test]"
 SAHARA_OFFLINE=1 uvicorn sahara.web.app:app --port 8080
 # open http://localhost:8080, add a family and a parent, press Simulate
-pytest -q          # 17 tests: audio, scam heuristics, summaries, webhooks, the audio bridge, scheduling
+pytest -q          # 20 tests: audio, scam heuristics, summaries, webhooks, the audio bridge, scheduling
 ```
 
 Offline mode runs the whole data path with a scripted parent, the rule-based summary and a console
 WhatsApp, so the desk and the API can be exercised before any account exists.
+
+### Talk to it yourself, with no phone number
+
+`/mic` is the operator desk's twin for the voice loop: it captures the microphone in the browser,
+downsamples to 8 kHz mu-law and speaks the same media-stream envelope the telephony providers do, so the
+bridge, the persona, the tools and the summary all run untouched. It is the way to hear the real agent —
+and to tune end-of-speech sensitivity against a slow speaker — before a number exists.
+
+```bash
+# a Gemini key, but no telephony account and no SAHARA_OFFLINE
+GOOGLE_API_KEY=... uvicorn sahara.web.app:app --port 8080
+# open http://localhost:8080/mic, pick a consented parent, press Start call
+```
+
+Leave `SAHARA_OFFLINE=1` set and you get the null engine's test tone instead of a conversation; the page
+says so when that happens. Audio is deliberately degraded to telephone fidelity — testing at 48 kHz
+flatters the model in a way a real call will not.
+
+For a real parent without a number, put your phone on speaker next to the laptop: her voice reaches
+Sahara through the laptop microphone and the reply goes back down the call. Echo cancellation is on, so
+this works, but latency is worse than real telephony — it is a floor, not a ceiling. What it cannot test
+is the thing the pilot exists for: whether an unfamiliar number gets answered on day nine.
 
 ### Live, for the first real calls
 
@@ -111,6 +133,7 @@ sahara/
   calls.py        start, run, finish a call; screening; retries; simulation
   scheduler.py    the minute tick
   web/app.py      webhooks, WebSocket, operator API, dashboard
+  web/static/     index.html (the desk), mic.html (browser mic client)
 scripts/seed.py   scripts/fake_phone.py   deploy/cloud_run.sh   tests/
 ```
 

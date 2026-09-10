@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sahara — mic</title>
+<style>
+  :root { --bg:#fbf7f0; --panel:#fff; --line:#e6ded2; --ink:#222; --dim:#7a7368; --accent:#c2410c; --ok:#15803d; --warn:#b45309; --bad:#b91c1c }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  header { display:flex; align-items:baseline; gap:14px; padding:16px 24px; border-bottom:1px solid var(--line); background:var(--panel) }
+  header h1 { margin:0; font-size:22px } header h1 span { color:var(--accent) } header small { color:var(--dim) }
+  main { max-width:760px; margin:0 auto; padding:22px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:14px }
+  .card h2 { margin:0 0 8px; font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim) }
+  input, select { width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:4px 0; font:inherit; background:#fff }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 18px; font-weight:600; cursor:pointer; margin:6px 6px 0 0; font-size:16px }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line) } button:disabled { opacity:.45; cursor:default }
+  .meter { height:10px; background:#f3efe7; border-radius:999px; overflow:hidden; margin-top:10px }
+  .meter i { display:block; height:100%; width:0; background:var(--ok); transition:width .08s linear }
+  .turn { margin:5px 0 } .turn b { color:var(--accent) } .turn.parent b { color:var(--ok) }
+  .note { color:var(--dim); font-size:13px } .bad { color:var(--bad) } .warn { color:var(--warn) } .ok { color:var(--ok) }
+  #log { font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--dim); max-height:150px; overflow:auto; white-space:pre-wrap }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sahara <span>mic</span></h1>
+  <small>the real voice agent at telephone fidelity — no phone number involved</small>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Setup</h2>
+    <input id="token" placeholder="Operator token (if SAHARA_OPERATOR_TOKEN is set)">
+    <select id="parent"><option value="">loading parents…</option></select>
+    <div class="note" id="setup-note">Pick the seeded parent whose persona and language you want to hear.</div>
+  </div>
+
+  <div class="card">
+    <h2>Call</h2>
+    <button id="start">Start call</button>
+    <button id="stop" class="ghost" disabled>Hang up</button>
+    <div class="meter"><i id="level"></i></div>
+    <div class="note" id="status" style="margin-top:10px">Idle.</div>
+  </div>
+
+  <div class="card">
+    <h2>Transcript</h2>
+    <div id="turns" class="note">Nothing yet.</div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const TOKEN_KEY = 'sahara_token';                 // shared with the operator desk
+const PHONE_HZ = 8000, FRAME = 160;               // 20 ms of 8 kHz mu-law, as the bridge expects
+
+function log(m){ const el=$('#log'); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight }
+function status(m, cls){ $('#status').className = 'note ' + (cls||''); $('#status').textContent = m }
+function token(){ try { return localStorage.getItem(TOKEN_KEY) || '' } catch(e){ return '' } }
+async function api(path, opts={}) {
+  const r = await fetch('/api'+path, {headers:{'content-type':'application/json','x-sahara-token':token()}, ...opts});
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.detail || j.error || r.statusText);
+  return j;
+}
+
+// ---------------------------------------------------------------- G.711 ---
+// Bit-identical to sahara/audio.py: clip to 32635, add a 132 bias, exponent
+// from the top bits of the biased value. A mismatch here would sound like a
+// codec fault and get blamed on the model, so it is worth the care.
+const EXP_LUT = (() => { const t = new Uint8Array(256);
+  for (let i=0;i<256;i++) t[i] = i<2?0 : i<4?1 : i<8?2 : i<16?3 : i<32?4 : i<64?5 : i<128?6 : 7;
+  return t; })();
+
+function muEncode(int16) {
+  const out = new Uint8Array(int16.length);
+  for (let i=0;i<int16.length;i++) {
+    let s = int16[i];
+    const sign = s < 0 ? 0x80 : 0;
+    if (s < 0) s = -s;
+    if (s > 32635) s = 32635;
+    s += 132;
+    const e = EXP_LUT[(s >> 7) & 0xFF];
+    out[i] = ~(sign | (e << 4) | ((s >> (e + 3)) & 0x0F)) & 0xFF;
+  }
+  return out;
+}
+function muDecode(bytes) {
+  const out = new Int16Array(bytes.length);
+  for (let i=0;i<bytes.length;i++) {
+    const u = ~bytes[i] & 0xFF, sign = u & 0x80, e = (u >> 4) & 0x07;
+    const s = ((((u & 0x0F) << 3) + 132) << e) - 132;
+    out[i] = sign ? -s : s;
+  }
+  return out;
+}
+// Linear interpolation, matching audio.py's dependency-free resampler.
+function resample(src, srcHz, dstHz) {
+  if (srcHz === dstHz || src.length === 0) return src;
+  const n = Math.round(src.length * dstHz / srcHz), out = new Float32Array(n);
+  for (let i=0;i<n;i++) {
+    const x = i * src.length / n, i0 = Math.floor(x), i1 = Math.min(i0+1, src.length-1), t = x - i0;
+    out[i] = src[i0]*(1-t) + src[i1]*t;
+  }
+  return out;
+}
+const b64 = u8 => { let s=''; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]); return btoa(s) };
+const unb64 = str => { const bin = atob(str), u = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i); return u };
+
+// ------------------------------------------------------------- worklets ---
+// Capture just forwards frames; the player holds a queue so a `clear` frame
+// (barge-in) can drop everything Sahara has queued but not yet spoken.
+const WORKLET = `
+class Cap extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(new Float32Array(ch)); return true }
+}
+class Ply extends AudioWorkletProcessor {
+  constructor() { super(); this.q = []; this.pos = 0;
+    this.port.onmessage = e => { if (e.data.cmd === 'clear') { this.q = []; this.pos = 0 } else this.q.push(e.data.pcm) } }
+  process(_, outputs) {
+    const out = outputs[0][0]; let i = 0;
+    while (i < out.length) {
+      if (!this.q.length) { out[i++] = 0; continue }
+      const cur = this.q[0], n = Math.min(out.length - i, cur.length - this.pos);
+      out.set(cur.subarray(this.pos, this.pos + n), i); i += n; this.pos += n;
+      if (this.pos >= cur.length) { this.q.shift(); this.pos = 0 }
+    }
+    return true
+  }
+}
+registerProcessor('cap', Cap); registerProcessor('ply', Ply);
+`;
+
+// ----------------------------------------------------------------- call ---
+let ctx, ws, stream, capNode, plyNode, poll, callId = null, pending = [];
+
+async function startCall() {
+  $('#start').disabled = true;
+  try {
+    const pid = $('#parent').value;
+    if (!pid) throw new Error('pick a parent first');
+
+    const info = await api(`/parents/${pid}/mic-call`, {method:'POST'});
+    callId = info.call_id;
+    log(`call ${callId} · parent ${info.parent} · language ${info.language} · engine ${info.engine}`);
+    if (info.engine === 'null')
+      status('Engine is "null" — SAHARA_OFFLINE=1 is set, so you will hear a test tone, not Sahara. Unset it and set a Gemini key for a real conversation.', 'warn');
+
+    // Echo cancellation matters: without it the mic re-hears Sahara through the
+    // speakers and the model interrupts itself. It also makes the
+    // phone-on-speaker trick usable.
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {echoCancellation:true, noiseSuppression:true, autoGainControl:true}, video:false});
+
+    ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: PHONE_HZ});
+    await ctx.resume();
+    if (ctx.sampleRate !== PHONE_HZ)
+      log(`note: browser gave ${ctx.sampleRate} Hz, not ${PHONE_HZ}; resampling in JS both ways`);
+
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], {type:'text/javascript'})));
+    capNode = new AudioWorkletNode(ctx, 'cap');
+    plyNode = new AudioWorkletNode(ctx, 'ply', {numberOfInputs:0, outputChannelCount:[1]});
+    plyNode.connect(ctx.destination);
+    const sink = ctx.createGain(); sink.gain.value = 0;      // pulls the capture node without echoing it
+    ctx.createMediaStreamSource(stream).connect(capNode); capNode.connect(sink); sink.connect(ctx.destination);
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/twilio/${callId}`);
+    ws.onopen = () => {
+      // The same envelope fake_phone.py sends, so the bridge needs no changes.
+      ws.send(JSON.stringify({event:'start', streamSid:'MZbrowser',
+                              start:{streamSid:'MZbrowser', customParameters:{call_id:callId}}}));
+      status('Connected — speak when Sahara greets you.', 'ok');
+      $('#stop').disabled = false;
+      startPolling();
+    };
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.event === 'media') {
+        const pcm = muDecode(unb64(m.media.payload));
+        const f = new Float32Array(pcm.length);
+        for (let i=0;i<pcm.length;i++) f[i] = pcm[i] / 32768;
+        plyNode.port.postMessage({pcm: resample(f, PHONE_HZ, ctx.sampleRate)});
+      } else if (m.event === 'clear') {
+        plyNode.port.postMessage({cmd:'clear'});          // barge-in: drop unspoken audio
+        log('← clear (barge-in)');
+      }
+    };
+    ws.onclose = () => { status('Call ended.', ''); teardown() };
+    ws.onerror = () => status('WebSocket error — is the server running?', 'bad');
+
+    capNode.port.onmessage = e => {
+      const at8k = resample(e.data, ctx.sampleRate, PHONE_HZ);
+      let peak = 0; for (let i=0;i<at8k.length;i++) peak = Math.max(peak, Math.abs(at8k[i]));
+      $('#level').style.width = Math.min(100, peak * 140) + '%';
+      const i16 = new Int16Array(at8k.length);
+      for (let i=0;i<at8k.length;i++) i16[i] = Math.max(-32768, Math.min(32767, Math.round(at8k[i] * 32767)));
+      pending.push(...i16);
+      while (pending.length >= FRAME && ws && ws.readyState === 1) {
+        const frame = Int16Array.from(pending.splice(0, FRAME));
+        ws.send(JSON.stringify({event:'media', media:{payload: b64(muEncode(frame))}}));
+      }
+    };
+  } catch (err) {
+    status(err.message, 'bad'); log('error: ' + err.message);
+    $('#start').disabled = false;
+  }
+}
+
+function stopCall() {
+  try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({event:'stop'})) } catch(e){}
+  try { ws && ws.close() } catch(e){}
+  teardown();
+}
+
+function teardown() {
+  $('#start').disabled = false; $('#stop').disabled = true; $('#level').style.width = '0';
+  pending = [];
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null }
+  if (ctx) { ctx.close().catch(()=>{}); ctx = null }
+  if (poll) { clearInterval(poll); poll = null }
+  if (callId) setTimeout(() => renderCall(callId), 1500);   // catch the closing summary
+}
+
+// Transcripts and logged facts land in the database, not on the wire, so read
+// them back while the call runs — this is where you see what Sahara heard.
+function startPolling() {
+  if (poll) clearInterval(poll);
+  poll = setInterval(() => renderCall(callId), 1500);
+}
+async function renderCall(id) {
+  try {
+    const c = await api(`/calls/${id}`);
+    const turns = c.turns || [];
+    $('#turns').innerHTML = turns.length
+      ? turns.map(t => `<div class="turn ${t.who}"><b>${t.who}</b> ${escapeHtml(t.text)}</div>`).join('')
+      : '<span class="note">Nothing yet.</span>';
+    if (c.obs && c.obs.length) log('facts: ' + JSON.stringify(c.obs));
+    if (c.summary) log('summary: ' + JSON.stringify(c.summary));
+  } catch(e){}
+}
+const escapeHtml = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+// ----------------------------------------------------------------- boot ---
+$('#token').value = token();
+$('#token').onchange = () => { try { localStorage.setItem(TOKEN_KEY, $('#token').value) } catch(e){} loadParents() };
+$('#start').onclick = startCall;
+$('#stop').onclick = stopCall;
+
+async function loadParents() {
+  try {
+    const ps = await api('/parents');
+    const sel = $('#parent');
+    sel.innerHTML = ps.length
+      ? ps.map(p => `<option value="${p.id}">${escapeHtml(p.name)} — ${p.language}${p.consent ? '' : ' (no consent)'}</option>`).join('')
+      : '<option value="">no parents — run scripts/seed.py first</option>';
+    $('#setup-note').textContent = ps.length
+      ? 'Pick the seeded parent whose persona and language you want to hear.'
+      : 'No parents yet. Seed one with scripts/seed.py --consent, then reload.';
+  } catch (e) {
+    $('#parent').innerHTML = '<option value="">could not load parents</option>';
+    $('#setup-note').innerHTML = '<span class="bad">' + escapeHtml(e.message) + '</span> — set the operator token above if one is configured.';
+  }
+}
+loadParents();
+</script>
+</body>
+</html>

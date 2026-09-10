@@ -14,6 +14,7 @@ from sqlmodel import select
 
 from .. import __version__, calls, config, scheduler
 from ..db import init_db, session
+from ..engine import make_engine
 from ..models import Alert, Call, Family, Parent, utcnow
 from ..persona import LANGUAGES
 from ..telephony import make_telephony
@@ -41,6 +42,11 @@ def operator(x_sahara_token: str | None = Header(default=None)):
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/mic")
+def mic():
+    return FileResponse(STATIC / "mic.html")
 
 
 @app.get("/api/health")
@@ -137,6 +143,24 @@ async def call_now(pid: int):
     except ValueError as e:
         raise HTTPException(404, str(e))
     return c
+
+
+@app.post("/api/parents/{pid}/mic-call", dependencies=[Depends(operator)])
+def mic_call(pid: int):
+    """A check-in row for the browser mic client. No telephony provider is dialled;
+    the browser speaks the Twilio media-stream envelope on /ws/twilio/<call_id>."""
+    with session() as s:
+        parent = s.get(Parent, pid)
+        if parent is None or not parent.active:
+            raise HTTPException(404, "no such active parent")
+        if not parent.consent:
+            raise HTTPException(403, f"{parent.name} has not consented; not calling")
+        call = Call(parent_id=parent.id, kind="checkin", status="scheduled", attempt=1,
+                    provider="browser", provider_call_id="browser",
+                    engine=make_engine().name, started_at=utcnow())
+        s.add(call); s.commit(); s.refresh(call)
+        return {"call_id": call.id, "parent": parent.name, "language": parent.language,
+                "engine": call.engine}
 
 
 class SimulateIn(BaseModel):

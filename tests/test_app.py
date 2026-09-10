@@ -129,3 +129,41 @@ def test_websocket_bridge_with_null_engine():
     d = client.get(f"/api/calls/{c['id']}").json()
     assert d["status"] == "completed" and d["obs"] and d["obs"][0]["detail"] == "Offline engine heard audio"
     assert any(a["kind"] == "summary" for a in d["alerts"])
+
+
+def test_mic_call_row_needs_consent_and_dials_nobody():
+    f = client.post("/api/families", json={"child_name": "Meera", "child_phone": "+919800000009"}).json()
+    p = client.post("/api/parents", json={"family_id": f["id"], "name": "Kamala", "phone": "+919700000009",
+                                          "consent": False}).json()
+    assert client.post(f"/api/parents/{p['id']}/mic-call").status_code == 403
+    assert client.post("/api/parents/999/mic-call").status_code == 404
+    client.post(f"/api/parents/{p['id']}/consent")
+    r = client.post(f"/api/parents/{p['id']}/mic-call")
+    assert r.status_code == 200
+    c = client.get(f"/api/calls/{r.json()['call_id']}").json()
+    assert c["provider"] == "browser" and c["provider_call_id"] == "browser"   # no telephony leg
+    assert c["kind"] == "checkin" and c["status"] == "scheduled"
+
+
+def test_mic_call_row_runs_over_the_same_bridge():
+    """The browser client speaks the Twilio envelope, so a mic row must drive the bridge
+    exactly as a dialled call does."""
+    f, p = _seed()
+    call_id = client.post(f"/api/parents/{p['id']}/mic-call").json()["call_id"]
+    silence = base64.b64encode(bytes([0xFF] * 160)).decode()
+    got_audio = 0
+    with client.websocket_connect(f"/ws/twilio/{call_id}") as ws:
+        ws.send_json({"event": "start", "streamSid": "MZbrowser",
+                      "start": {"customParameters": {"call_id": call_id}}})
+        for _ in range(330):
+            ws.send_json({"event": "media", "media": {"payload": silence}})
+        while True:
+            try:
+                msg = ws.receive_json()
+            except Exception:
+                break
+            if msg.get("event") == "media":
+                got_audio += 1
+    assert got_audio > 20
+    d = client.get(f"/api/calls/{call_id}").json()
+    assert d["status"] == "completed" and d["turns"]
