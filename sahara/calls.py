@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from fastapi import WebSocket
 from sqlmodel import select
 
-from . import config, notify
+from . import config, memory, notify
 from .db import session
 from .engine import make_engine
 from .models import Alert, Call, Family, Parent, utcnow
@@ -90,7 +90,10 @@ class LiveCall:
             prompt, tools = screener_prompt(self.parent, self.family), SCREEN_TOOLS
             opening = "Answer the call and ask who is calling."
         else:
-            prompt, tools = checkin_prompt(self.parent, self.family), CHECKIN_TOOLS
+            memory.ensure_seeded(self.parent, self.family.child_name)
+            brief = memory.briefing(self.parent.id)
+            memory.mark_used(self.parent.id, brief)
+            prompt, tools = checkin_prompt(self.parent, self.family, brief), CHECKIN_TOOLS
             opening = f"Begin with the recording notice, then greet {self.parent.name} by name."
         with session() as s:
             c = s.get(Call, self.call_id); c.status = "in_progress"; c.engine = engine.name; s.add(c); s.commit()
@@ -121,9 +124,19 @@ class LiveCall:
     async def on_tool_call(self, tc: dict) -> dict:
         name, args = tc["name"], tc.get("args", {})
         if name == "log_observation":
-            self.obs.append({"kind": args.get("kind", "other"), "detail": args.get("detail", ""),
+            kind, detail = args.get("kind", "other"), args.get("detail", "")
+            self.obs.append({"kind": kind, "detail": detail,
                              "severity": args.get("severity", "info")})
+            if kind == "health" and detail and self.call.kind == "checkin":
+                # a symptom is only useful if it can be compared with last week's
+                try:
+                    memory.remember(self.parent.id, "health_thread", detail[:60], detail,
+                                    call_id=self.call_id)
+                except Exception as e:
+                    log.warning("health thread write failed: %s", e)
             return {"ok": True}
+        if name in ("remember_person", "remember_fact", "open_loop", "close_loop"):
+            return self._remember(name, args)
         if name == "decide":
             self.decision = ScreenDecision(**{k: args.get(k, d) for k, d in
                                               ScreenDecision().model_dump().items()})
@@ -137,6 +150,28 @@ class LiveCall:
         if name == "end_call":
             return {"ok": True}
         return {"ok": False, "error": f"unknown tool {name}"}
+
+    def _remember(self, name: str, args: dict) -> dict:
+        """Memory writes. A wrong fact is worse than a missing one, so a bad write fails
+        quietly rather than poisoning the graph or derailing the call."""
+        pid = self.parent.id
+        try:
+            if name == "remember_person":
+                memory.remember(pid, "person", args.get("name", ""), args.get("detail", ""),
+                                relation=args.get("relation", ""), call_id=self.call_id)
+            elif name == "remember_fact":
+                kind = args.get("kind", "topic")
+                memory.remember(pid, kind if kind in memory.FACT_KINDS else "topic",
+                                args.get("label", ""), args.get("detail", ""),
+                                sensitivity=args.get("sensitivity", "normal"), call_id=self.call_id)
+            elif name == "open_loop":
+                memory.open_loop(pid, args.get("topic", ""), args.get("detail", ""), call_id=self.call_id)
+            else:
+                memory.close_loop(pid, args.get("topic", ""), args.get("outcome", ""))
+        except Exception as e:
+            log.warning("memory write %s failed: %s", name, e)
+            return {"ok": False}
+        return {"ok": True}
 
     async def finish(self, stats: dict):
         ended = utcnow()

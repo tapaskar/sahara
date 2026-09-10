@@ -51,6 +51,44 @@ CHECKIN_TOOLS = [{
         "severity": {"type": "string", "enum": ["info", "warn", "urgent"]},
     }, "required": ["kind", "detail", "severity"]},
 }, {
+    "name": "remember_person",
+    "description": "Record a person they mention who matters to them: a grandchild, a neighbour, a doctor. "
+                   "Call it the first time the person comes up, and again if you learn something new.",
+    "parameters": {"type": "object", "properties": {
+        "name": {"type": "string", "description": "The person's name as spoken"},
+        "relation": {"type": "string", "description": "Relation to the parent, e.g. grandson, neighbour, doctor"},
+        "detail": {"type": "string", "description": "One sentence in English, e.g. 'In 5th standard, plays cricket'"},
+    }, "required": ["name", "relation"]},
+}, {
+    "name": "remember_fact",
+    "description": "Record something durable about their life worth recalling on a later call: what they "
+                   "enjoy, where they go, a routine, a past event. Not today's health facts — those are "
+                   "log_observation.",
+    "parameters": {"type": "object", "properties": {
+        "kind": {"type": "string", "enum": ["preference", "routine", "place", "event", "organisation", "topic"]},
+        "label": {"type": "string", "description": "Short name, as they said it, e.g. 'achaar', 'mandir'"},
+        "detail": {"type": "string", "description": "One sentence in English"},
+        "sensitivity": {"type": "string", "enum": ["normal", "sensitive"],
+                        "description": "Use 'sensitive' for family conflict, money worry or low mood: it will be "
+                                       "remembered but never raised by you unprompted."},
+    }, "required": ["kind", "label", "detail"]},
+}, {
+    "name": "open_loop",
+    "description": "They mentioned something unfinished that you could warmly ask about tomorrow, e.g. they "
+                   "were about to make pickle, or a grandchild's exam is on Friday.",
+    "parameters": {"type": "object", "properties": {
+        "topic": {"type": "string", "description": "Short name, e.g. 'making achaar'"},
+        "detail": {"type": "string", "description": "One sentence in English"},
+    }, "required": ["topic"]},
+}, {
+    "name": "close_loop",
+    "description": "You asked about the thing the briefing told you to ask about. Call this once, with what "
+                   "they said.",
+    "parameters": {"type": "object", "properties": {
+        "topic": {"type": "string", "description": "The same topic the briefing named"},
+        "outcome": {"type": "string", "description": "One sentence in English"},
+    }, "required": ["topic", "outcome"]},
+}, {
     "name": "end_call",
     "description": "Say goodbye first, then call this when the conversation has naturally finished.",
     "parameters": {"type": "object", "properties": {"reason": {"type": "string"}}, "required": ["reason"]},
@@ -70,7 +108,7 @@ SCREEN_TOOLS = [{
 
 
 # ------------------------------------------------------------- prompts ---
-def checkin_prompt(parent: Parent, family: Family) -> str:
+def checkin_prompt(parent: Parent, family: Family, briefing: str = "") -> str:
     meds = ", ".join(f"{m.get('name')} ({m.get('when', 'daily')})" for m in parent.meds()) or "none listed"
     lang = language_name(parent.language)
     return f"""You are Sahara, a warm, unhurried companion who telephones {parent.name} every morning on behalf of
@@ -93,6 +131,8 @@ THE CONVERSATION (about two to three minutes, no more):
 
 What you know about them: {parent.notes or 'nothing yet; learn something today.'}
 
+{briefing or 'You have not spoken before. Learn one thing about their life worth remembering.'}
+
 SAFETY RULES:
 - Chest pain, severe breathlessness, a fall they cannot get up from, confusion, slurred speech: tell them
   calmly to call 108 or 112 right now, say that you are informing {family.child_name} immediately, and log
@@ -105,6 +145,10 @@ SAFETY RULES:
 
 TOOLS: call log_observation the moment a fact is stated: medication taken or missed, what they ate,
 sleep, pain, mood, a need, a scam contact, a social detail. Details in English, one sentence each.
+Separately, build your memory of them: remember_person for anyone who matters to them, remember_fact for
+something durable about their life, open_loop for anything unfinished you could ask about tomorrow, and
+close_loop when you have asked about the thing the briefing named. Remember sparingly and accurately —
+you will be wrong to recall something they never said.
 When the conversation has ended naturally, say goodbye warmly, mention you will call tomorrow, and call end_call."""
 
 

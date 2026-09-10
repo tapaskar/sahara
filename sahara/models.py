@@ -65,6 +65,39 @@ class Call(SQLModel, table=True):
         return json.loads(self.observations or "[]")
 
 
+class MemoryNode(SQLModel, table=True):
+    """One remembered fact about one parent. Written only by tool calls during a call;
+    survives the transcript purge because it holds a sentence, never an utterance."""
+    id: int | None = Field(default=None, primary_key=True)
+    parent_id: int = Field(foreign_key="parent.id", index=True)   # hard scope; no query crosses it
+    kind: str                             # person place topic routine health_thread medication event organisation open_loop
+    label: str                            # as spoken: "Ayaan", "achaar", "knee pain"
+    label_key: str = Field(index=True)    # normalised for matching; see memory.normalise
+    relation: str = ""                    # person nodes: relation to the parent (son, grandson, neighbour)
+    detail: str = ""                      # one sentence, English
+    status: str = "active"                # active | closed (open_loops) | superseded | deleted
+    sensitivity: str = "normal"           # normal | sensitive | never_volunteer
+    confidence: float = 0.6               # model 0.6, parent-confirmed 0.9, child-corrected 1.0
+    corrected_by: str = "model"           # model | parent | child
+    source_call_id: int | None = None
+    times_used: int = 0                   # fatigue: how often this was put in a briefing
+    first_seen: datetime = Field(default_factory=utcnow)
+    last_confirmed: datetime = Field(default_factory=utcnow)
+
+
+class MemoryEdge(SQLModel, table=True):
+    """A typed relation between two of one parent's nodes: Ravi PARENT_OF Ayaan."""
+    id: int | None = Field(default=None, primary_key=True)
+    parent_id: int = Field(foreign_key="parent.id", index=True)
+    src_id: int = Field(foreign_key="memorynode.id")
+    dst_id: int = Field(foreign_key="memorynode.id")
+    kind: str                             # PARENT_OF TREATS PRESCRIBED_FOR KNOWS ...
+    label: str = ""
+    confidence: float = 0.6
+    source_call_id: int | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Alert(SQLModel, table=True):
     """Anything the child should hear about, and the record that we told them."""
     id: int | None = Field(default=None, primary_key=True)

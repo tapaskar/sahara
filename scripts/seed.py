@@ -7,6 +7,7 @@
 import argparse
 import json
 
+from sahara import memory
 from sahara.db import init_db, session
 from sahara.models import Family, Parent, utcnow
 
@@ -26,4 +27,5 @@ with session() as s:
                medications=json.dumps(json.loads(a.meds) if a.meds else []), notes=a.notes,
                consent=a.consent, consent_at=utcnow() if a.consent else None)
     s.add(p); s.commit(); s.refresh(p)
+    memory.ensure_seeded(p, f.child_name)
     print(f"family {f.id}: {f.child_name} | parent {p.id}: {p.name} {p.phone} {p.language} at {p.call_time} consent={p.consent}")

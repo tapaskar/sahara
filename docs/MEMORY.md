@@ -191,7 +191,7 @@ The graph is the substrate for the artifacts that drive renewal:
 
 | Phase | Memory work | Gate |
 |---|---|---|
-| **Pilot** (weeks 1–8) | `MemoryNode`/`MemoryEdge` tables; `remember_person`, `remember_fact`, `open_loop`, `close_loop`; briefing compiler with one callback; seed the graph from the onboarding notes | Callback appears in the call and lands in the summary |
+| **Pilot** (weeks 1–8) — **built**, see `sahara/memory.py` | `MemoryNode`/`MemoryEdge` tables; `remember_person`, `remember_fact`, `open_loop`, `close_loop`; briefing compiler with one callback; seed the graph from the onboarding notes | Callback appears in the call and lands in the summary |
 | **Phase 2** (months 3–6) | Entity resolution with the candidate queue; decay and fatigue scoring; correction and `forget` tools; child-facing memory view in the desk; festival and birthday nodes | Child corrects a fact and it sticks |
 | **Phase 3** (scale) | Health-thread analytics across time; story archive and family report generated from the graph; export on cancellation; phonetic/embedding resolution only if measured to be needed | Longitudinal threads demonstrably surface something a human missed |
 

@@ -27,6 +27,7 @@ unknown caller ──▶ Sahara number ──▶ screener persona ──▶ conn
 | Call screener persona | `sahara/persona.py` | Answers on the parent's behalf; `decide` tool; heuristics can raise the model's scam risk, never lower it |
 | Voice engines | `sahara/engine/` | `gemini_live` (default, audio to audio, barge-in), `cascade` (Sarvam speech to text and text to speech around Gemini text), `null` (offline) |
 | Telephony | `sahara/telephony/` | Twilio Media Streams and Plivo Audio Streams, both bidirectional; the bridge converts mu-law 8 kHz to PCM 16 kHz and back |
+| Long-term memory | `sahara/memory.py` | A typed knowledge graph per parent, written only by tool calls, read as a short briefing carrying one callback ("you were going to make pickle — did you?"); see [docs/MEMORY.md](docs/MEMORY.md) |
 | Summary | `sahara/summarize.py` | Gemini with a typed schema; rule-based fallback so a call is never lost |
 | Notifications | `sahara/notify.py` | WhatsApp via Meta Cloud API (template) or Twilio; console offline |
 | Scheduler | `sahara/scheduler.py` | Each parent's local call time, one call a day, retry once after 30 minutes, tell the child after the last miss |
@@ -46,7 +47,8 @@ end of week four, are the whole pilot.
 pip install -e ".[test]"
 SAHARA_OFFLINE=1 uvicorn sahara.web.app:app --port 8080
 # open http://localhost:8080, add a family and a parent, press Simulate
-pytest -q          # 20 tests: audio, scam heuristics, summaries, webhooks, the audio bridge, scheduling
+pytest -q          # 34 tests: audio, scam heuristics, summaries, webhooks,
+                   # the audio bridge, scheduling, memory graph and briefings
 ```
 
 Offline mode runs the whole data path with a scripted parent, the rule-based summary and a console
@@ -126,6 +128,7 @@ sahara/
   audio.py        mu-law, resampling, VAD, WAV helpers (numpy only)
   persona.py      prompts, tools, CallSummary and ScreenDecision schemas, recording notices
   scam.py         multilingual scam heuristics
+  memory.py       per-parent knowledge graph: remember, briefing, forget
   summarize.py    Gemini summary with typed output; offline rules
   notify.py       WhatsApp adapters
   engine/         gemini_live.py, cascade.py, null.py

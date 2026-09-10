@@ -15,6 +15,7 @@ from sqlmodel import select
 
 from .. import __version__, calls, config, scheduler
 from ..db import init_db, session
+from .. import memory
 from ..engine import make_engine
 from ..gemini import using_vertex
 from ..models import Alert, Call, Family, Parent, utcnow
@@ -103,9 +104,26 @@ def create_parent(body: ParentIn):
     with session() as s:
         if s.get(Family, body.family_id) is None:
             raise HTTPException(404, "no such family")
+        family = s.get(Family, body.family_id)
         p = Parent(**{**body.model_dump(exclude={"medications"}), "medications": json.dumps(body.medications),
                       "consent_at": utcnow() if body.consent else None})
-        s.add(p); s.commit(); s.refresh(p); return p
+        s.add(p); s.commit(); s.refresh(p)
+    memory.ensure_seeded(p, family.child_name)      # give the first call something to remember
+    return p
+
+
+@app.get("/api/parents/{pid}/memory", dependencies=[Depends(operator)])
+def parent_memory(pid: int):
+    with session() as s:
+        if s.get(Parent, pid) is None:
+            raise HTTPException(404, "no such parent")
+    return {**memory.graph(pid), "briefing": memory.briefing(pid)}
+
+
+@app.delete("/api/parents/{pid}/memory/{label}", dependencies=[Depends(operator)])
+def forget_memory(pid: int, label: str):
+    """The erasure right, in practice: the node and its edges go."""
+    return {"removed": memory.forget(pid, label)}
 
 
 @app.post("/api/parents/{pid}/consent", dependencies=[Depends(operator)])
