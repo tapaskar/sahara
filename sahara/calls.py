@@ -129,6 +129,11 @@ class LiveCall:
             self.turns.append(turn)
         if final:
             self._flag_if_drifted(self.turns[-1])
+            if who == "parent":
+                try:
+                    self._persist_turns()
+                except Exception as e:
+                    log.warning("mid-call transcript persist failed: %s", e)
 
     def _persist_turns(self):
         with session() as s:
@@ -139,10 +144,16 @@ class LiveCall:
             s.add(c); s.commit()
 
     async def on_turn_end(self):
-        """A spoken turn finished; stop merging into it."""
+        """A spoken turn finished; stop merging into it, and write it down. Persisting
+        mid-call is what lets a live view show the conversation as it happens rather than
+        only after the line drops."""
         if self.turns:
             self.turns[-1]["final"] = True
             self._flag_if_drifted(self.turns[-1])
+            try:
+                self._persist_turns()
+            except Exception as e:
+                log.warning("mid-call transcript persist failed: %s", e)
 
     def _flag_if_drifted(self, turn: dict):
         """Mark a final parent turn whose transcription is inconsistent with the parent's

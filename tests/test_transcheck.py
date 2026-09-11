@@ -102,3 +102,22 @@ async def test_a_need_observation_opens_a_loop():
     assert len(loops) == 1 and loops[0]["detail"] == "Wants to see a doctor."
     assert "doctor" in memory.callback(pid)
     assert live.mem_writes == 1
+
+
+async def test_the_transcript_is_readable_while_the_call_is_still_running():
+    """A live view can only show the conversation as it happens if turns are written down
+    mid-call; before this they only landed when the line dropped."""
+    from sahara.calls import LiveCall
+
+    pid = _seed()
+    call_id = client.post(f"/api/parents/{pid}/mic-call").json()["call_id"]
+    live = LiveCall(call_id)
+
+    await live.on_transcript("sahara", "नमस्ते, मैं सहारा हूँ।", False)
+    await live.on_turn_end()
+    mid = client.get(f"/api/calls/{call_id}").json()["turns"]
+    assert [t["text"] for t in mid] == ["नमस्ते, मैं सहारा हूँ।"], mid
+
+    await live.on_transcript("parent", "ठीक हूँ बेटा", True)
+    mid2 = client.get(f"/api/calls/{call_id}").json()["turns"]
+    assert [t["who"] for t in mid2] == ["sahara", "parent"], mid2
