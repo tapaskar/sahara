@@ -134,6 +134,11 @@
     font-style:italic;color:var(--ink);margin-top:16px}
   .callback b{font-style:normal;font-family:system-ui,sans-serif;font-size:11px;letter-spacing:.1em;
     text-transform:uppercase;color:var(--gold);display:block;margin-bottom:6px;font-weight:600}
+  .nextday{text-align:center;margin-top:30px;background:var(--panel);border:1px solid var(--line);
+    border-radius:18px;padding:26px 24px;box-shadow:0 18px 40px -30px rgba(90,60,30,.4)}
+  .nextday p{margin:0 0 18px;color:var(--dim);font-style:italic;font-size:17px}
+  .daytag{font-family:system-ui,sans-serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:#fff;background:var(--gold);padding:3px 10px;border-radius:999px;margin-left:10px;font-weight:600}
   footer{text-align:center;padding:30px 0 60px;color:var(--faint);font-size:13px;
     font-family:system-ui,sans-serif}
   .err{color:var(--urgent);font-family:system-ui,sans-serif;font-size:14px;margin-top:10px}
@@ -211,7 +216,8 @@
   <!-- CALL -->
   <section id="call" class="hidden">
     <div class="card">
-      <div class="call-head"><div class="eyebrow" style="margin:0">The morning call</div></div>
+      <div class="call-head"><div class="eyebrow" style="margin:0">The morning call</div>
+        <span class="daytag" id="daytag">Day 1</span></div>
       <div class="who" id="callwho"></div>
       <div class="live">
         <div class="orb" id="orb"><span></span></div>
@@ -249,8 +255,11 @@
         <ul class="mem" id="factlist"></ul>
       </div>
     </div>
-    <div style="text-align:center;margin-top:30px">
-      <button class="ghost" id="again">Try another conversation</button>
+    <div class="nextday" id="nextday">
+      <div class="eyebrow" style="margin-bottom:8px">The next morning</div>
+      <p id="nextcopy">Call her again — she will pick up where you left off.</p>
+      <button class="go" id="callagain">🎙 &nbsp;Take tomorrow's call</button>
+      <div style="margin-top:12px"><button class="ghost" id="again">Start fresh with someone new</button></div>
     </div>
   </section>
 
@@ -262,7 +271,8 @@
 <script>
 const $=s=>document.querySelector(s);
 const PHONE_HZ=8000, FRAME=160;
-let CALL=null, PARENT_ID=null, CHILD="", PARENT="";
+let CALL=null, PARENT_ID=null, CHILD="", PARENT="", DAY=0;
+// the persona persists across calls — that is the whole point: tomorrow she remembers
 let ctx,ws,stream,capNode,plyNode,poll,pending=[],heard=0,lastAudio=0,ended=false;
 
 async function api(path,body,method){
@@ -378,7 +388,11 @@ $('#begin').onclick=async()=>{
 };
 
 async function startVoice(){
-  ended=false; heard=0; pending=[];
+  ended=false; heard=0; pending=[]; shown=0;
+  DAY++; $('#daytag').textContent='Day '+DAY;
+  $('#thread').innerHTML='';
+  $('#endcall').disabled=false; $('#endcall').textContent='End the call & see the report';
+  state('Connecting…','');
   const info=await api(`/try/${PARENT_ID}/voice-call`);
   CALL=info.call_id;
   stream=await navigator.mediaDevices.getUserMedia({
@@ -486,8 +500,14 @@ function renderReport(r){
     const sev=n.severity==='urgent'?'urgent':n.severity==='warn'?'warn':'';
     return `<li><span class="chip ${sev}">${esc(n.kind.replace('_',' '))}</span><span>${esc(n.detail||n.label)}</span></li>`;
   }).join('')||'<li style="color:var(--faint)">Nothing yet.</li>';
-  if(r.callback){ $('#cb').textContent=cbText(r.callback); $('#cbwrap').classList.remove('hidden'); }
-  else $('#cbwrap').classList.add('hidden');
+  if(r.callback){
+    $('#cb').textContent=cbText(r.callback); $('#cbwrap').classList.remove('hidden');
+    $('#nextcopy').innerHTML='She will open tomorrow with <b style="font-style:normal">'
+      + esc(cbText(r.callback)) + '</b> — without being told.';
+  } else {
+    $('#cbwrap').classList.add('hidden');
+    $('#nextcopy').textContent='Call her again — she remembers what you told her.';
+  }
   $('#factlist').innerHTML=(r.obs||[]).map(o=>{
     const sev=o.severity==='urgent'?'urgent':o.severity==='warn'?'warn':'';
     return `<li><span class="chip ${sev}">${esc(o.kind)}</span><span>${esc(o.detail)}</span></li>`;
@@ -501,8 +521,18 @@ function cbText(instruction){
   return instruction;
 }
 
+$('#callagain').onclick=async()=>{
+  const b=$('#callagain'); b.disabled=true; b.textContent='Connecting…';
+  try{
+    $('#report').classList.add('hidden'); $('#call').classList.remove('hidden');
+    $('#call').scrollIntoView({behavior:'smooth'});
+    await startVoice();                     // same PARENT_ID — she keeps her memory
+  }catch(e){ $('#call-err').textContent=e.message; $('#call-err').classList.remove('hidden'); }
+  finally{ b.disabled=false; b.textContent="🎙  Take tomorrow's call"; }
+};
+
 $('#again').onclick=()=>{
-  CALL=null; shown=0;
+  CALL=null; shown=0; DAY=0; PARENT_ID=null;
   $('#thread').innerHTML=''; $('#report').classList.add('hidden');
   $('#setup').classList.remove('hidden');
   window.scrollTo({top:0,behavior:'smooth'});

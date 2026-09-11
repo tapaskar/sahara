@@ -279,3 +279,35 @@ async def test_a_restated_fact_is_logged_once_but_can_get_worse():
     await obs("health", "knee pain", "warn")
     health = [o for o in live.obs if o["kind"] == "health"]
     assert len(health) == 1 and health[0]["severity"] == "warn"
+
+
+async def test_a_second_call_to_the_same_parent_inherits_the_first_ones_memory():
+    """The demo's whole claim. Day 1 learns; day 2 must carry it into the prompt and open
+    with the unfinished thing — the demo previously minted a new parent per call, so
+    nothing could ever be remembered."""
+    from sahara import memory
+    from sahara.calls import LiveCall
+    from sahara.db import session
+    from sahara.models import Family, Parent
+    from sahara.persona import checkin_prompt
+
+    pid = _parent()
+    day1 = client.post(f"/api/parents/{pid}/mic-call").json()["call_id"]
+    lc = LiveCall(day1)
+    await lc.on_tool_call({"id": "1", "name": "log_observation",
+                           "args": {"kind": "need", "detail": "Needs prescription refills",
+                                    "severity": "warn"}})
+    await lc.on_tool_call({"id": "2", "name": "remember_person",
+                           "args": {"name": "अयान", "relation": "grandson",
+                                    "detail": "plays cricket"}})
+
+    day2 = client.post(f"/api/parents/{pid}/mic-call").json()["call_id"]
+    assert day2 != day1
+    with session() as s:
+        p = s.get(Parent, pid)
+        f = s.get(Family, p.family_id)
+    prompt = checkin_prompt(p, f, memory.briefing(pid), memory.callback(pid))
+
+    assert "अयान" in prompt, "yesterday's grandson must be known today"
+    assert "refill" in prompt.lower(), "yesterday's unfinished need must be carried"
+    assert "refill" in memory.callback(pid).lower(), "and it should open the call"
