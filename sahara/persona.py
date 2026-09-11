@@ -186,6 +186,14 @@ CHECKIN_TOOLS = [{
         "outcome": {"type": "string", "description": "One sentence in English"},
     }, "required": ["topic", "outcome"]},
 }, {
+    "name": "call_back_later",
+    "description": "They are busy right now — at the market, at the temple, guests at home — or they "
+                   "asked you to call at another time. Apologise briefly for the timing, call this, "
+                   "then say a warm short goodbye. Do not push through the checklist when they are busy.",
+    "parameters": {"type": "object", "properties": {
+        "minutes": {"type": "integer", "description": "How long to wait, e.g. 60 for 'after lunch'; use 120 if they did not say"},
+    }, "required": ["minutes"]},
+}, {
     "name": "end_call",
     "description": "Say goodbye first, then call this when the conversation has naturally finished.",
     "parameters": {"type": "object", "properties": {"reason": {"type": "string"}}, "required": ["reason"]},
@@ -251,6 +259,9 @@ SAFETY RULES:
   up on such callers; log it as "scam" with severity "warn" or "urgent".
 - Never promise anything on {family.child_name}'s behalf.
 - If they are upset or lonely, stay with it. Do not rush to cheer them up.
+- If they are busy — guests, the market, the temple — respect it immediately: apologise for the
+  timing, call call_back_later, and let them go with warmth. A rescheduled call costs nothing;
+  making them feel interrogated when busy costs the next answer.
 
 TOOLS: call log_observation the moment a fact is stated: medication taken or missed, what they ate,
 sleep, pain, mood, a need, a scam contact, a social detail. Details in English, one sentence each.

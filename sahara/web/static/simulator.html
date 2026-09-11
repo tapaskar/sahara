@@ -97,6 +97,15 @@
   .orb.speaking{animation:pulse 1.6s ease-in-out infinite}
   .orb.listening span{background:var(--ok)}
   @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+  .chips{margin:0 0 18px;animation:rise .35s ease both}
+  .chips-label{font-family:system-ui,sans-serif;font-size:12px;color:var(--faint);
+    letter-spacing:.05em;margin-bottom:8px;text-align:center}
+  .chips-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .chip-say{background:var(--panel2);border:1px dashed var(--gold);border-radius:12px;
+    padding:9px 14px;cursor:default;max-width:240px;text-align:center}
+  .chip-say b{display:block;font-weight:500;font-size:15px;color:var(--ink)}
+  .chip-say small{display:block;font-family:system-ui,sans-serif;font-size:11.5px;
+    color:var(--dim);font-style:italic;margin-top:2px}
   .livestate{font-family:system-ui,sans-serif;font-size:14px;color:var(--dim);letter-spacing:.02em}
   .meter{width:220px;height:6px;background:#efe6d8;border-radius:999px;overflow:hidden}
   .meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .08s linear}
@@ -156,6 +165,12 @@
   .sessionbar .copy{background:transparent;border:1px solid var(--line);color:var(--dim);
     padding:4px 10px;font-size:12px;border-radius:7px;margin:0}
   .sessionbar .tip{text-transform:none;letter-spacing:0;font-style:italic;font-weight:400}
+  .tomorrow-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    background:var(--panel);border:1px solid var(--gold);border-radius:14px;padding:16px 20px;
+    margin-bottom:22px;box-shadow:0 14px 30px -24px rgba(181,100,47,.6)}
+  .tomorrow-bar b{font-weight:500}
+  .tomorrow-bar span{color:var(--dim);font-style:italic}
+  .tomorrow-bar button{flex:none;margin:0}
   .nextday{text-align:center;margin-top:30px;background:var(--panel);border:1px solid var(--line);
     border-radius:18px;padding:26px 24px;box-shadow:0 18px 40px -30px rgba(90,60,30,.4)}
   .nextday p{margin:0 0 18px;color:var(--dim);font-style:italic;font-size:17px}
@@ -275,6 +290,10 @@
         <div class="livestate" id="livestate">Connecting…</div>
         <div class="meter"><i id="level"></i></div>
       </div>
+      <div class="chips hidden" id="chips">
+        <div class="chips-label">Not sure what to say? Try one of these, out loud:</div>
+        <div class="chips-row" id="chiprow"></div>
+      </div>
       <div class="thread" id="thread"></div>
       <div style="margin-top:6px">
         <button class="ghost" id="endcall">End the call &amp; see the report</button>
@@ -289,6 +308,10 @@
   <section id="report" class="hidden">
     <div class="eyebrow">After the call</div>
     <div id="esc"></div>
+    <div class="tomorrow-bar" id="tomorrowbar">
+      <div><b>It's already tomorrow here.</b> <span id="tomorrowline"></span></div>
+      <button class="go" id="callagain-top">🎙 &nbsp;Hear it — 30 seconds</button>
+    </div>
     <div class="card" style="margin-bottom:22px">
       <div class="wa">
         <div class="from">WhatsApp to <span id="whoto"></span></div>
@@ -309,7 +332,7 @@
     <div class="nextday" id="nextday">
       <div class="eyebrow" style="margin-bottom:8px">The next morning</div>
       <p id="nextcopy">Call her again — she will pick up where you left off.</p>
-      <button class="go" id="callagain">🎙 &nbsp;Take tomorrow's call</button>
+      <button class="go" id="callagain">🎙 &nbsp;Take tomorrow's call — now</button>
       <div style="margin-top:12px"><button class="ghost" id="again">Start fresh with someone new</button></div>
     </div>
   </section>
@@ -419,6 +442,38 @@ registerProcessor('cap', Cap); registerProcessor('ply', Ply);
 
 
 
+// What the person being called might plausibly say — shown so a first-time visitor is
+// never stuck holding a live mic with no idea what their "mother" would answer. The
+// health/need lines are deliberate: they become memory, which makes tomorrow's call land.
+const CHIPS = {
+  "hi-IN": [
+    [["ठीक हूँ बेटा, नींद अच्छी आई","Theek hoon beta, neend achhi aayi","I'm fine, slept well"],
+     ["घुटने में थोड़ा दर्द है","Ghutne mein thoda dard hai","My knee hurts a little"],
+     ["हाँ, दवा ले ली","Haan, dawa le li","Yes, took my medicine"]],
+    [["नाश्ते में पोहा खाया","Nashte mein poha khaya","Had poha for breakfast"],
+     ["बिजली का बिल भरना है","Bijli ka bill bharna hai","The electricity bill needs paying"],
+     ["कल मंदिर जाना है","Kal mandir jaana hai","I'm going to the temple tomorrow"]],
+    [["पोते का क्रिकेट मैच है कल","Pote ka cricket match hai kal","My grandson has a match tomorrow"],
+     ["डॉक्टर को दिखाना है","Doctor ko dikhana hai","I need to see the doctor"],
+     ["अच्छा बेटा, नमस्ते","Achha beta, namaste","Alright dear, goodbye"]]
+  ],
+  "en-IN": [
+    [["I'm fine, slept well","",""],["My knee has been aching","",""],["Yes, I took my medicine","",""]],
+    [["I had upma for breakfast","",""],["The electricity bill needs paying","",""],["I'm visiting the temple tomorrow","",""]],
+    [["My grandson has a cricket match","",""],["I should see the doctor about this","",""],["Alright, goodbye dear","",""]]
+  ]
+};
+let chipStage=0;
+function showChips(){
+  const sets=CHIPS[$('#language')?$('#language').value:'hi-IN']||CHIPS['en-IN'];
+  const set=sets[Math.min(chipStage,sets.length-1)];
+  $('#chiprow').innerHTML=set.map(([native,translit,en])=>
+    `<div class="chip-say"><b>${esc(native)}</b>`+
+    (translit?`<small>${esc(translit)}</small>`:'')+
+    (en?`<small>${esc(en)}</small>`:'')+`</div>`).join('');
+  $('#chips').classList.remove('hidden');
+}
+
 function bubble(who,text){
   const wrap=document.createElement('div');
   wrap.className=who==='parent'?'parent-wrap':'sahara-wrap';
@@ -481,7 +536,8 @@ function showStartError(e){
 }
 
 async function startVoice(){
-  ended=false; heard=0; pending=[]; shown=0;
+  ended=false; heard=0; pending=[]; shown=0; chipStage=0;
+  $('#chips').classList.add('hidden');
   DAY++; $('#daytag').textContent='Day '+DAY; remember();
   $('#thread').innerHTML='';
   $('#endcall').disabled=false; $('#endcall').textContent='End the call & see the report';
@@ -511,6 +567,7 @@ async function startVoice(){
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
     if(m.event==='media'){
+      if(heard===0){ chipStage=0; showChips(); }
       heard++; lastAudio=Date.now(); state('Sahara is speaking','speaking');
       const pcm=muDecode(unb64(m.media.payload));
       const f=new Float32Array(pcm.length);
@@ -541,7 +598,9 @@ let shown=0;
 async function renderTurns(){
   try{
     const c=await api(`/try/${CALL}/report?token=${encodeURIComponent(TOKEN)}`,null,'GET');
-    (c.turns||[]).slice(shown).forEach(t=>bubble(t.who,t.text));
+    const fresh=(c.turns||[]).slice(shown);
+    fresh.forEach(t=>bubble(t.who,t.text));
+    if(fresh.some(t=>t.who==='sahara')){ chipStage++; showChips(); }
     shown=(c.turns||[]).length;
   }catch(e){}
 }
@@ -598,10 +657,15 @@ function renderReport(r){
     $('#cb').textContent=cbText(r.callback); $('#cbwrap').classList.remove('hidden');
     $('#nextcopy').innerHTML='She will open tomorrow with <b style="font-style:normal">'
       + esc(cbText(r.callback)) + '</b> — without being told.';
+    $('#tomorrowline').textContent='She will open with: '+cbText(r.callback);
   } else {
     $('#cbwrap').classList.add('hidden');
-    $('#nextcopy').textContent='Call her again — she remembers what you told her.';
+    $('#nextcopy').textContent='Call again — she remembers what you told her.';
+    $('#tomorrowline').textContent='She remembers everything from this call.';
   }
+  $('#whoto').textContent=CHILD;
+  const codeNote=SESSION?` &nbsp;·&nbsp; session <code style="font:600 12px ui-monospace,monospace;background:var(--accent-soft);color:var(--accent);padding:2px 7px;border-radius:6px">${esc(SESSION)}</code> — keep it to return`:'';
+  $('#nextcopy').innerHTML += codeNote;
   $('#factlist').innerHTML=(r.obs||[]).map(o=>{
     const sev=o.severity==='urgent'?'urgent':o.severity==='warn'?'warn':'';
     return `<li><span class="chip ${sev}">${esc(o.kind)}</span><span>${esc(o.detail)}</span></li>`;
@@ -615,6 +679,7 @@ function cbText(instruction){
   return instruction;
 }
 
+$('#callagain-top').onclick=()=>$('#callagain').click();
 $('#callagain').onclick=async()=>{
   const b=$('#callagain'); b.disabled=true; b.textContent='Connecting…';
   try{

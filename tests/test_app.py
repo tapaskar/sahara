@@ -281,3 +281,43 @@ async def test_the_engine_survives_the_end_of_a_turn():
     assert kinds.count("turn_complete") == 2, "both turns must be seen, not just the first"
     assert any(e.type == "transcript_in" for e in events), "the parent's turn must arrive"
     assert kinds.count("end") == 1 and kinds[-1] == "end", "end only once the session closes"
+
+
+def test_the_person_calling_back_never_meets_their_own_screener():
+    """She rings the number that calls her every morning. The screener asking her who she
+    is and why she is calling herself is humiliating; she gets a check-in instead."""
+    from sahara import calls as calls_mod
+
+    f, p = _seed()
+    parent_number = "+919700000001"
+    c = calls_mod.start_screen(parent_number, "+911234567890", "IN123")
+    assert c.kind == "checkin", "her own number must never route to the screener"
+    assert c.caller_number == parent_number
+
+    stranger = calls_mod.start_screen("+919999999999", parent_number, "IN124")
+    assert stranger.kind == "screen"        # unknown callers still get screened
+
+
+async def test_call_back_later_defers_without_summary_spam():
+    from datetime import timedelta
+
+    from sahara import calls as calls_mod
+    from sahara.calls import LiveCall
+    from sahara.models import utcnow
+
+    f, p = _seed()
+    call_id = client.post(f"/api/parents/{p['id']}/mic-call").json()["call_id"]
+    live = LiveCall(call_id)
+    r = await live.on_tool_call({"id": "1", "name": "call_back_later", "args": {"minutes": 60}})
+    assert r["ok"] and r["calling_back_in_minutes"] == 60
+    await live.on_transcript("parent", "अभी मंदिर जा रही हूँ, बाद में करना", True)
+    await live.finish({"frames_in": 999})
+
+    d = client.get(f"/api/calls/{call_id}").json()
+    assert d["status"] == "deferred"
+    # no "we spoke to her" summary goes to the family for a ten-second brush-off
+    assert not d["summary"]
+
+    # not due before her hour is up; due after it
+    assert all(c.id != call_id for c in calls_mod.due_retries(utcnow() + timedelta(minutes=30)))
+    assert any(c.id == call_id for c in calls_mod.due_retries(utcnow() + timedelta(minutes=61)))

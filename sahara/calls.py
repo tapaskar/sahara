@@ -57,8 +57,18 @@ async def start_checkin(parent_id: int, attempt: int = 1) -> Call:
 
 
 def start_screen(caller_number: str, parent_phone: str, provider_call_id: str) -> Call | None:
-    """Inbound call to the Sahara number: find the parent it belongs to and open a screen call."""
+    """Inbound call to the Sahara number: find the parent it belongs to and open a screen call.
+    If the CALLER is the person themselves — she rang the number back — she must never meet
+    her own screener asking who she is; she gets a warm check-in instead."""
     with session() as s:
+        caller_is_parent = s.exec(select(Parent).where(
+            Parent.phone == caller_number, Parent.active == True)).first()  # noqa: E712
+        if caller_is_parent is not None:
+            call = Call(parent_id=caller_is_parent.id, kind="checkin", status="in_progress",
+                        provider=config.TELEPHONY, provider_call_id=provider_call_id,
+                        caller_number=caller_number, engine=make_engine().name, started_at=utcnow())
+            s.add(call); s.commit(); s.refresh(call)
+            return call
         parent = s.exec(select(Parent).where(Parent.phone == parent_phone)).first()
         if parent is None:
             parent = s.exec(select(Parent).where(Parent.active == True)).first()  # noqa: E712 - single-parent pilots
@@ -79,6 +89,7 @@ class LiveCall:
         self.obs: list[dict] = []
         self.decision: ScreenDecision | None = None
         self.mem_writes = 0                     # in-call memory writes, for the pilot metric
+        self.defer_minutes = 0                  # call_back_later: they were busy
         self._partial: dict[str, str] = {}
         with session() as s:
             self.call = s.get(Call, call_id)
@@ -96,7 +107,12 @@ class LiveCall:
             brief, ask = memory.briefing(self.parent.id), memory.callback(self.parent.id)
             memory.mark_used(self.parent.id, brief)
             prompt, tools = checkin_prompt(self.parent, self.family, brief, ask), CHECKIN_TOOLS
-            opening = f"Begin with the recording notice, then greet {self.parent.name} by name."
+            if self.call.caller_number:      # she rang us — do not pretend this was scheduled
+                opening = (f"{self.parent.name} has just called YOU. Say the recording notice, then "
+                           f"greet them warmly by name and ask if everything is alright — they may "
+                           f"simply want to talk, and that is a fine reason to call.")
+            else:
+                opening = f"Begin with the recording notice, then greet {self.parent.name} by name."
         with session() as s:
             c = s.get(Call, self.call_id); c.status = "in_progress"; c.engine = engine.name; s.add(c); s.commit()
         await engine.start(prompt, tools, self.parent.language, opening)
@@ -211,6 +227,9 @@ class LiveCall:
                 self.decision.reason += f" Heuristics: {', '.join(labels)}."
                 self.decision.action = verdict(self.decision.scam_risk)
             return {"ok": True, "action": self.decision.action}
+        if name == "call_back_later":
+            self.defer_minutes = max(15, min(int(args.get("minutes") or 120), 360))
+            return {"ok": True, "calling_back_in_minutes": self.defer_minutes}
         if name == "end_call":
             return {"ok": True}
         return {"ok": False, "error": f"unknown tool {name}"}
@@ -251,12 +270,14 @@ class LiveCall:
             if c.kind == "screen":
                 d = self.decision or ScreenDecision(action="message", reason="caller gave no purpose")
                 c.summary = d.model_dump_json(); c.status = "completed"
+            elif self.defer_minutes:
+                c.status = "deferred"; c.defer_minutes = self.defer_minutes
             else:
                 c.status = "completed" if answered else "no_answer"
             s.add(c); s.commit()
         if self.call.kind == "screen":
             await self._notify_screen()
-        elif answered:
+        elif answered and not self.defer_minutes:
             await self._notify_checkin()
 
     async def _notify_checkin(self):
@@ -326,13 +347,14 @@ async def mark_status(call_id: int, status: str):
 
 
 def due_retries(now: datetime) -> list[Call]:
-    cutoff = now - timedelta(minutes=config.RETRY_AFTER_MINUTES)
     with session() as s:
-        calls = s.exec(select(Call).where(Call.kind == "checkin", Call.status == "no_answer",
-                                          Call.attempt < config.MAX_ATTEMPTS)).all()
+        calls = s.exec(select(Call).where(Call.kind == "checkin",
+                                          Call.status.in_(("no_answer", "deferred")),
+                                          Call.attempt < config.MAX_ATTEMPTS + 1)).all()
         out = []
         for c in calls:
-            if (c.ended_at or c.created_at) <= cutoff and not s.exec(
+            wait = c.defer_minutes or config.RETRY_AFTER_MINUTES   # her "after lunch" wins
+            if (c.ended_at or c.created_at) <= now - timedelta(minutes=wait) and not s.exec(
                     select(Call).where(Call.parent_id == c.parent_id, Call.id > c.id)).first():
                 out.append(c)
         return out

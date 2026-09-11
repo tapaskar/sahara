@@ -55,6 +55,7 @@ class Call(SQLModel, table=True):
     provider_call_id: str = ""
     status: str = "scheduled"             # scheduled ringing in_progress completed no_answer failed
     attempt: int = 1
+    defer_minutes: int = 0                # they asked to be called back later
     engine: str = ""
     caller_number: str = ""               # inbound screens only
     started_at: datetime | None = None
