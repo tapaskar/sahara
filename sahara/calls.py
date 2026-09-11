@@ -284,8 +284,12 @@ class LiveCall:
                 ch, ok2 = await notify.send_whatsapp(self.family.child_phone, f"{lead}: {body}")
                 s.add(notify.alert_row(self.parent.id, self.call_id, "health", esc.level, body, ch, ok2))
             elif esc.level == "notify" and esc.headline:
+                # a level that reaches nobody debases the whole vocabulary: notify goes
+                # out as its own short message, not just a database row
+                body = " ".join(x for x in (esc.headline, esc.recommended_action) if x)
+                ch3, ok3 = await notify.send_whatsapp(self.family.child_phone, body)
                 s.add(notify.alert_row(self.parent.id, self.call_id, "health", "warn",
-                                       esc.headline, channel, ok))
+                                       body, ch3, ok3))
             for m in summary.scam_mentions:
                 s.add(notify.alert_row(self.parent.id, self.call_id, "scam", "warn", m, channel, ok))
             s.commit()

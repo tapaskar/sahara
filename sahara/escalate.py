@@ -66,20 +66,32 @@ def _hit(text: str, groups) -> str | None:
 
 def deterministic_floor(turns: list[dict], obs: list[dict]) -> tuple[str, list[str]]:
     """The level the situation is at least at, from hard signals alone — no model.
-    Reproducible, offline, and the safety net under the reasoning pass."""
-    text = " ".join(t.get("text", "") for t in turns if t.get("who") == "parent")
-    text += " " + " ".join(o.get("detail", "") for o in obs)
+    Reproducible, offline, and the safety net under the reasoning pass.
+
+    The URGENT keywords are scoped: raw transcript hits only count when the in-call model
+    also logged a warn+ health/need fact — otherwise "my neighbour fell" fires a false
+    URGENT to the family, and two of those in a week teach them to ignore the real one.
+    EMERGENCY keywords stay unscoped on the transcript deliberately: a false emergency
+    costs a phone call, a missed one can cost a life, and that asymmetry decides it.
+    Levels are still only ever raised, never lowered."""
+    parent_text = " ".join(t.get("text", "") for t in turns if t.get("who") == "parent")
+    all_obs_text = " ".join(o.get("detail", "") for o in obs)
+    # only observations the model judged to be trouble about THIS person; a social note
+    # that happens to contain "fell" is a story, not an incident
+    trouble_text = " ".join(o.get("detail", "") for o in obs
+                            if o.get("severity") in ("warn", "urgent")
+                            and o.get("kind") in ("health", "need"))
     signals: list[str] = []
     level = "none"
 
-    em = _hit(text, _EMERGENCY)
+    em = _hit(parent_text + " " + all_obs_text, _EMERGENCY)
     if em:
         return "emergency", [f"hard signal: {em}"]
 
     if any(o.get("severity") == "urgent" for o in obs):
         level = "urgent"
         signals.append("a fact was logged urgent during the call")
-    ur = _hit(text, _URGENT)
+    ur = _hit(trouble_text, _URGENT) or (trouble_text and _hit(parent_text, _URGENT))
     if ur:
         level = _max(level, "urgent")
         signals.append(f"hard signal: {ur}")

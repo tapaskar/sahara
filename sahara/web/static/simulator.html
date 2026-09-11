@@ -454,9 +454,31 @@ $('#begin').onclick=async()=>{
     $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would — this is your AI assistant calling them.`;
     $('#call').scrollIntoView({behavior:'smooth'});
     await startVoice();
-  }catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden'); }
+  }catch(e){ showStartError(e); }
   finally{ btn.disabled=false; btn.textContent='🎙  Begin the morning call'; }
 };
+
+// A failure after the setup card is hidden used to write its message INTO the hidden
+// card: mic-deniers and over-quota visitors stared at "Connecting…" forever.
+function friendly(e){
+  const m=String(e&&e.message||e);
+  if(/NotAllowed|Permission|denied/i.test(m))
+    return 'Your browser blocked the microphone. Click the lock icon in the address bar, allow the microphone, and try again.';
+  if(/NotFound|no.*device/i.test(m))
+    return 'No microphone was found. Plug one in or try another device.';
+  if(/limit|quota|busy|overloaded|try again/i.test(m))
+    return m;
+  return 'Could not start the call: '+m;
+}
+function showStartError(e){
+  try{ ws&&ws.close() }catch(_){}
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  $('#call').classList.add('hidden');
+  $('#setup').classList.remove('hidden');
+  $('#setup-err').textContent=friendly(e);
+  $('#setup-err').classList.remove('hidden');
+  $('#setup-err').scrollIntoView({behavior:'smooth',block:'center'});
+}
 
 async function startVoice(){
   ended=false; heard=0; pending=[]; shown=0;
@@ -464,10 +486,11 @@ async function startVoice(){
   $('#thread').innerHTML='';
   $('#endcall').disabled=false; $('#endcall').textContent='End the call & see the report';
   state('Connecting…','');
-  const info=await api(`/try/${PARENT_ID}/voice-call?token=${encodeURIComponent(TOKEN)}`);
-  CALL=info.call_id;
+  // the microphone comes first: a denial must not burn one of the day's budgeted calls
   stream=await navigator.mediaDevices.getUserMedia({
     audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+  const info=await api(`/try/${PARENT_ID}/voice-call?token=${encodeURIComponent(TOKEN)}`);
+  CALL=info.call_id;
   ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:PHONE_HZ});
   await ctx.resume();
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET],{type:'text/javascript'})));
@@ -598,7 +621,11 @@ $('#callagain').onclick=async()=>{
     $('#report').classList.add('hidden'); $('#call').classList.remove('hidden');
     $('#call').scrollIntoView({behavior:'smooth'});
     await startVoice();                     // same PARENT_ID — she keeps her memory
-  }catch(e){ $('#call-err').textContent=e.message; $('#call-err').classList.remove('hidden'); }
+  }catch(e){
+    $('#call').classList.add('hidden'); $('#report').classList.remove('hidden');
+    $('#call-err').classList.remove('hidden');
+    $('#call-err').textContent=friendly(e);
+  }
   finally{ b.disabled=false; b.textContent="🎙  Take tomorrow's call"; }
 };
 
@@ -663,8 +690,7 @@ async function openSession(code, andCall){
   $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would — this is your AI assistant calling them.`;
   $('#call').scrollIntoView({behavior:'smooth'});
   try{ await startVoice(); }
-  catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
-    $('#setup').classList.remove('hidden'); $('#call').classList.add('hidden'); }
+  catch(e){ showStartError(e); }
 }
 
 function showSession(){

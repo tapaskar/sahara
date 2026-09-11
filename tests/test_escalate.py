@@ -61,3 +61,23 @@ async def test_offline_assess_returns_the_floor_with_a_message():
                                 [obs("health", "Fell, swelling", "warn")], p, f)
     assert esc.level == "urgent"
     assert esc.headline and esc.recommended_action                   # the child gets something to act on
+
+
+def test_a_story_about_someone_else_does_not_fire_a_false_urgent():
+    """"My neighbour fell" is a story, not an incident — unless the in-call model also
+    logged trouble, the keyword alone must not page the family."""
+    lvl, _ = deterministic_floor(
+        [parent_turn("मेरी पड़ोसन कल गिर गई थी, बेचारी")],
+        [obs("social", "Talked about a neighbour who fell", "info")])
+    assert lvl == "none"
+
+
+def test_the_scoping_never_weakens_a_real_incident():
+    # the model logged the trouble: transcript keywords count again
+    lvl, _ = deterministic_floor(
+        [parent_turn("कल मैं गिर गई, टखने में सूजन है")],
+        [obs("health", "Fell yesterday, ankle swelling", "warn")])
+    assert lvl == "urgent"
+    # and emergency keywords stay unscoped — the asymmetry is deliberate
+    lvl2, _ = deterministic_floor([parent_turn("पड़ोसी को सीने में दर्द था")], [])
+    assert lvl2 == "emergency"
