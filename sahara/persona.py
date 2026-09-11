@@ -87,6 +87,20 @@ def child_is_to_parent(relation: str) -> str:
     return "family"
 
 
+def relationship_line(parent: Parent, family: Family) -> str:
+    """How to describe these two people, using only what the family recorded. Every
+    reporting prompt takes this instead of assuming a parent and child — a hardcoded
+    "their child" was enough to make summaries call a neighbour somebody's mother."""
+    rel = (parent.relation or "").strip()
+    if rel:
+        return (f"{parent.name} is {family.child_name}'s {rel}. Refer to them that way and no "
+                f"other — never call them a parent, a mother or a father unless that is the "
+                f"word here.")
+    return (f"{family.child_name} asked for these calls to {parent.name}. How they are related "
+            f"was not recorded: do not state or imply any relationship, and never guess one. "
+            f"Use {parent.name}'s name.")
+
+
 def identity_block(parent: Parent, family: Family) -> str:
     """Who this person is, in the family's own words, at the top of the prompt and outranking
     everything. Relationship, gender and life context are facts the family supplied — never

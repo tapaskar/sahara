@@ -118,3 +118,39 @@ def test_each_session_keeps_its_own_memory(monkeypatch):
     memory.open_loop(a["parent_id"], "making achaar", "was going to make it")
     assert "achaar" in memory.callback(a["parent_id"])
     assert "achaar" not in memory.callback(b["parent_id"])     # sessions do not bleed
+
+
+def test_reports_use_the_recorded_relationship_and_never_assume_one():
+    """A hardcoded "their child" in the summary prompt was enough to make reports call a
+    neighbour somebody's mother. Both reporting passes must read the field, not guess."""
+    import inspect
+
+    from sahara import escalate, summarize
+    from sahara.persona import relationship_line
+
+    # lines that ASSERT a relationship, as opposed to the lines forbidding one
+    src = inspect.getsource(summarize) + inspect.getsource(escalate)
+    asserting = [ln for ln in src.splitlines()
+                 if any(a in ln for a in ("their child ", "their parent ", "for their child"))
+                 and "never" not in ln]
+    assert not asserting, f"a report still assumes a relationship: {asserting}"
+    # and both prompts must carry the recorded line
+    assert "relationship_line(parent, family)" in src
+
+    nb = Parent(name="Kamala", language="hi-IN", relation="neighbour")
+    line = relationship_line(nb, FAM)
+    assert "Kamala is Ravi's neighbour" in line
+    assert "never call them a parent, a mother or a father" in line
+
+    unstated = relationship_line(Parent(name="Kamala", language="hi-IN"), FAM)
+    assert "was not recorded" in unstated and "never guess one" in unstated
+
+
+async def test_the_offline_alert_names_the_person_rather_than_a_relationship():
+    from sahara import escalate
+
+    p = Parent(name="Kamala", language="hi-IN", relation="neighbour")
+    esc = await escalate.assess([{"who": "parent", "text": "कल गिर गई थी"}],
+                                [{"kind": "health", "detail": "Fell", "severity": "warn"}], p, FAM)
+    assert "Kamala" in esc.headline and "Kamala" in esc.recommended_action
+    assert "mother" not in (esc.headline + esc.recommended_action).lower()

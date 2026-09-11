@@ -6,7 +6,7 @@ import logging
 
 from . import config
 from .models import Family, Parent
-from .persona import CallSummary, language_name
+from .persona import CallSummary, language_name, relationship_line
 from .scam import heuristic_risk
 
 log = logging.getLogger("sahara.summarize")
@@ -65,8 +65,11 @@ async def summarize(turns: list[dict], obs: list[dict], parent: Parent, family: 
     if config.OFFLINE:
         return offline_summary(turns, obs, parent, family)
     from .gemini import text_client
-    prompt = f"""You are summarising Sahara's morning call with {parent.name} ({language_name(parent.language)} speaker)
-for their child {family.child_name}, who reads {language_name(family.child_language) if family.child_language != 'en' else 'English'}.
+    prompt = f"""You are summarising this morning's call with {parent.name} ({language_name(parent.language)} speaker)
+for {family.child_name}, who reads {language_name(family.child_language) if family.child_language != 'en' else 'English'}.
+
+WHO THESE PEOPLE ARE — use only this, never an assumption:
+{relationship_line(parent, family)}
 
 Transcript (who: text):
 {json.dumps(turns, ensure_ascii=False, indent=0)}
@@ -77,7 +80,9 @@ Facts the agent logged during the call:
 Rules: only state what is in the transcript or the facts. If medicines were not discussed, leave
 medications_taken null. parent_initiated_topics are things {parent.name} brought up unprompted.
 engagement: 0.2 for one-word answers, 0.8 for stories and questions back. child_message: two to four short
-lines in the child's language, specific and warm, first line the most important thing, no preamble."""
+lines addressed to {family.child_name}, specific and warm, first line the most important thing, no preamble.
+Name {parent.name} or use the exact relationship word above — never "your mother", "your father" or any
+relationship that is not stated above."""
     try:
         client = text_client()
         r = await client.aio.models.generate_content(

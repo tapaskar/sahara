@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from . import config
 from .models import Family, Parent
-from .persona import language_name
+from .persona import language_name, relationship_line
 
 log = logging.getLogger("sahara.escalate")
 
@@ -106,15 +106,15 @@ def _apply_floor(esc: Escalation, floor: str, floor_signals: list[str]) -> Escal
 
 def _fallback(floor: str, signals: list[str], parent: Parent) -> Escalation:
     headline = {
-        "emergency": f"Possible emergency on {parent.name}'s call — call them right now.",
-        "urgent": f"Something on {parent.name}'s call needs your attention today.",
-        "notify": f"Worth knowing from {parent.name}'s call.",
+        "emergency": f"Possible emergency on the call with {parent.name} — call them right now.",
+        "urgent": f"Something on the call with {parent.name} needs your attention today.",
+        "notify": f"Worth knowing from the call with {parent.name}.",
         "none": "",
     }[floor]
     action = {
-        "emergency": "Call now; if you cannot reach her, call a neighbour or 108.",
-        "urgent": "Call her this morning.",
-        "notify": "A call when you can would be kind.",
+        "emergency": f"Call now; if you cannot reach {parent.name}, call a neighbour or 108.",
+        "urgent": f"Call {parent.name} this morning.",
+        "notify": f"A call to {parent.name} when you can would be kind.",
         "none": "",
     }[floor]
     return Escalation(level=floor, reason="", headline=headline,
@@ -131,17 +131,20 @@ async def assess(turns: list[dict], obs: list[dict], parent: Parent, family: Fam
         return _fallback(floor, floor_signals, parent)
 
     from .gemini import text_client
-    prompt = f"""You decide how urgently to alert {family.child_name} about their parent {parent.name}
-after Sahara's morning call. You are NOT a doctor: never diagnose, never name a condition. You route a
-message to a worried adult child who is far away. Judge how much attention today's call needs.
+    prompt = f"""You decide how urgently to alert {family.child_name} about {parent.name} after this
+morning's call. You are NOT a doctor: never diagnose, never name a condition. You route a message to
+someone far away who cares about them. Judge how much attention today's call needs.
+
+WHO THESE PEOPLE ARE — use only this, never an assumption:
+{relationship_line(parent, family)}
 
 Choose exactly one level:
-- none: an ordinary good call, nothing the child must act on.
-- notify: worth knowing (low mood, a minor complaint, a small need) — a call from the child would help.
-- urgent: the child should call their parent today (a fall, new or worsening pain, swelling, not eating,
-  a scam attempt, real distress).
-- emergency: a possible medical emergency — the child should call immediately (chest pain, breathlessness,
-  a fall they could not get up from, signs of a stroke, heavy bleeding).
+- none: an ordinary good call, nothing to act on.
+- notify: worth knowing (low mood, a minor complaint, a small need) — a call would help.
+- urgent: {family.child_name} should call {parent.name} today (a fall, new or worsening pain, swelling,
+  not eating, a scam attempt, real distress).
+- emergency: a possible medical emergency — {family.child_name} should call immediately (chest pain,
+  breathlessness, a fall they could not get up from, signs of a stroke, heavy bleeding).
 
 Weigh what changed since earlier calls: a brand-new fall or a WORSENING symptom escalates; the same mild
 complaint mentioned for weeks does not.
@@ -156,7 +159,8 @@ What earlier calls recorded (for trend — is this new or ongoing?):
 {history or "nothing on record yet"}
 
 Write headline and recommended_action in {language_name(family.child_language) if family.child_language != 'en' else 'English'},
-one short line each, observational ("she said…", "she mentioned…"), never clinical. Leave them empty only
+one short line each, observational ("she said…", "he mentioned…"), never clinical. Name {parent.name} or
+use the exact relationship word above — never "your mother" or "your father" unless that is the word. Leave them empty only
 for level none. signals: the specific things that drove your decision."""
     try:
         client = text_client()
