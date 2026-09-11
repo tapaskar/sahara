@@ -63,11 +63,16 @@ if [ -z "${GOOGLE_API_KEY:-}" ] && [ -z "${SAHARA_OFFLINE:-}" ]; then
 fi
 [ -n "${GOOGLE_API_KEY:-}" ] && export GOOGLE_API_KEY
 
+# Behind a tunnel (cloudflared, ngrok) the tunnel terminates TLS and talks plain HTTP to
+# us — serving HTTPS locally then breaks it. NO_TLS=1 is the tunnel case.
 TLS=()
-if [ -f cert.pem ] && [ -f key.pem ]; then
+if [ -n "${NO_TLS:-}" ]; then
+  scheme=http
+  echo "note: NO_TLS set — serving plain HTTP for a tunnel to terminate TLS in front"
+elif [ -f cert.pem ] && [ -f key.pem ]; then
   TLS=(--ssl-keyfile key.pem --ssl-certfile cert.pem)
   scheme=https
-else
+elif true; then
   scheme=http
   echo "note: no cert.pem/key.pem, serving plain HTTP — /mic will not get the"
   echo "      microphone from anywhere but localhost."
