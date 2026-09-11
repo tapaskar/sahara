@@ -90,8 +90,16 @@
   .typing i{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:blink 1.2s infinite both}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
   @keyframes blink{0%,60%,100%{opacity:.3}30%{opacity:1}}
-  .composer{display:flex;gap:12px;align-items:flex-end}
-  .composer textarea{flex:1;min-height:52px;border-radius:14px}
+  .live{display:flex;flex-direction:column;align-items:center;gap:14px;padding:14px 0 26px}
+  .orb{width:96px;height:96px;border-radius:50%;background:radial-gradient(circle at 35% 32%,#f7e3d0,#e8bd93);
+    display:grid;place-items:center;box-shadow:0 16px 40px -18px rgba(181,100,47,.7);transition:.25s}
+  .orb span{width:34px;height:34px;border-radius:50%;background:var(--accent);opacity:.9;transition:.18s}
+  .orb.speaking{animation:pulse 1.6s ease-in-out infinite}
+  .orb.listening span{background:var(--ok)}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+  .livestate{font-family:system-ui,sans-serif;font-size:14px;color:var(--dim);letter-spacing:.02em}
+  .meter{width:220px;height:6px;background:#efe6d8;border-radius:999px;overflow:hidden}
+  .meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .08s linear}
 
   /* report */
   .esc{border-radius:16px;padding:20px 22px;margin-bottom:22px;border:1px solid}
@@ -137,7 +145,7 @@
   <header class="hero">
     <div class="mark">Sahara</div>
     <h1>Every morning, a warm voice checks on the ones you <em>can't be with</em>.</h1>
-    <p>Speak with her yourself. See what she'd remember, and what she'd tell you.</p>
+    <p>Talk to her yourself, out loud. See what she'd remember, and what she'd tell you.</p>
     <div class="rule"></div>
   </header>
 
@@ -190,8 +198,8 @@
         <label>Anything worth knowing about her (optional)</label>
         <textarea id="notes" placeholder="Lives alone in Cuttack, loves cricket, misses her grandchildren"></textarea>
       </div>
-      <button class="go" id="begin">Begin the morning call &nbsp;→</button>
-      <div class="hint">You'll play her part — answer as she might. Sahara speaks first.</div>
+      <button class="go" id="begin">🎙 &nbsp;Begin the morning call</button>
+      <div class="hint">You'll play her part, in your own voice. Your browser will ask for the microphone. Sahara speaks first.</div>
       <div class="err hidden" id="setup-err"></div>
     </div>
   </section>
@@ -201,17 +209,17 @@
     <div class="card">
       <div class="call-head"><div class="eyebrow" style="margin:0">The morning call</div></div>
       <div class="who" id="callwho"></div>
+      <div class="live">
+        <div class="orb" id="orb"><span></span></div>
+        <div class="livestate" id="livestate">Connecting…</div>
+        <div class="meter"><i id="level"></i></div>
+      </div>
       <div class="thread" id="thread"></div>
-      <div class="composer">
-        <textarea id="line" placeholder="Answer as she would…" rows="1"></textarea>
-        <button class="go" id="send">Say</button>
-      </div>
-      <div class="hint">When you're done, end the call to see what Sahara took away from it.</div>
-      <div style="margin-top:14px">
+      <div style="margin-top:6px">
         <button class="ghost" id="endcall">End the call &amp; see the report</button>
-        <a class="voice" id="voicelink" href="#" target="_blank" rel="noopener">🎙 Speak to her instead</a>
       </div>
-      <div class="hint" id="voicehint">The voice version uses your microphone and real telephone-quality audio.</div>
+      <div class="hint">Speak naturally — she waits for you to finish. Headphones help;
+        without them she hears herself through your speakers.</div>
       <div class="err hidden" id="call-err"></div>
     </div>
   </section>
@@ -243,49 +251,108 @@
   </section>
 
   <footer>
-    A prototype. No real calls are placed; the dialogue is live, in her language.
+    A prototype. No telephone call is placed — the conversation runs in your browser, at telephone audio quality, in her language.
   </footer>
 </div>
 
 <script>
 const $=s=>document.querySelector(s);
+const PHONE_HZ=8000, FRAME=160;
 let CALL=null, PARENT_ID=null, CHILD="", PARENT="";
-async function api(path,body){
-  const r=await fetch('/api'+path,{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify(body||{})});
+let ctx,ws,stream,capNode,plyNode,poll,pending=[],heard=0,lastAudio=0,ended=false;
+
+async function api(path,body,method){
+  const r=await fetch('/api'+path,{method:method||'POST',headers:{'content-type':'application/json'},
+    body:method==='GET'?undefined:JSON.stringify(body||{})});
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.detail||j.error||r.statusText);
   return j;
 }
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+// ---------------------------------------------------------------- G.711 ---
+// Bit-identical to sahara/audio.py: clip to 32635, add a 132 bias, exponent
+// from the top bits of the biased value. A mismatch here would sound like a
+// codec fault and get blamed on the model, so it is worth the care.
+const EXP_LUT = (() => { const t = new Uint8Array(256);
+  for (let i=0;i<256;i++) t[i] = i<2?0 : i<4?1 : i<8?2 : i<16?3 : i<32?4 : i<64?5 : i<128?6 : 7;
+  return t; })();
+
+function muEncode(int16) {
+  const out = new Uint8Array(int16.length);
+  for (let i=0;i<int16.length;i++) {
+    let s = int16[i];
+    const sign = s < 0 ? 0x80 : 0;
+    if (s < 0) s = -s;
+    if (s > 32635) s = 32635;
+    s += 132;
+    const e = EXP_LUT[(s >> 7) & 0xFF];
+    out[i] = ~(sign | (e << 4) | ((s >> (e + 3)) & 0x0F)) & 0xFF;
+  }
+  return out;
+}
+function muDecode(bytes) {
+  const out = new Int16Array(bytes.length);
+  for (let i=0;i<bytes.length;i++) {
+    const u = ~bytes[i] & 0xFF, sign = u & 0x80, e = (u >> 4) & 0x07;
+    const s = ((((u & 0x0F) << 3) + 132) << e) - 132;
+    out[i] = sign ? -s : s;
+  }
+  return out;
+}
+// Linear interpolation, matching audio.py's dependency-free resampler.
+function resample(src, srcHz, dstHz) {
+  if (srcHz === dstHz || src.length === 0) return src;
+  const n = Math.round(src.length * dstHz / srcHz), out = new Float32Array(n);
+  for (let i=0;i<n;i++) {
+    const x = i * src.length / n, i0 = Math.floor(x), i1 = Math.min(i0+1, src.length-1), t = x - i0;
+    out[i] = src[i0]*(1-t) + src[i1]*t;
+  }
+  return out;
+}
+const b64 = u8 => { let s=''; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]); return btoa(s) };
+const unb64 = str => { const bin = atob(str), u = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i); return u };
+
+// ------------------------------------------------------------- worklets ---
+// Capture just forwards frames; the player holds a queue so a `clear` frame
+// (barge-in) can drop everything Sahara has queued but not yet spoken.
+const WORKLET = `
+class Cap extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(new Float32Array(ch)); return true }
+}
+class Ply extends AudioWorkletProcessor {
+  constructor() { super(); this.q = []; this.pos = 0;
+    this.port.onmessage = e => { if (e.data.cmd === 'clear') { this.q = []; this.pos = 0 } else this.q.push(e.data.pcm) } }
+  process(_, outputs) {
+    const out = outputs[0][0]; let i = 0;
+    while (i < out.length) {
+      if (!this.q.length) { out[i++] = 0; continue }
+      const cur = this.q[0], n = Math.min(out.length - i, cur.length - this.pos);
+      out.set(cur.subarray(this.pos, this.pos + n), i); i += n; this.pos += n;
+      if (this.pos >= cur.length) { this.q.shift(); this.pos = 0 }
+    }
+    return true
+  }
+}
+registerProcessor('cap', Cap); registerProcessor('ply', Ply);
+`;
+
+
+
 function bubble(who,text){
   const wrap=document.createElement('div');
   wrap.className=who==='parent'?'parent-wrap':'sahara-wrap';
-  const name=who==='parent'?PARENT:'Sahara';
-  wrap.innerHTML=`<div class="speaker">${esc(name)}</div>`+
+  wrap.innerHTML=`<div class="speaker">${esc(who==='parent'?PARENT:'Sahara')}</div>`+
     `<div class="bubble ${who}">${esc(text)}</div>`;
-  $('#thread').appendChild(wrap);
-  wrap.scrollIntoView({behavior:'smooth',block:'end'});
-  return wrap;
+  $('#thread').appendChild(wrap); wrap.scrollIntoView({behavior:'smooth',block:'end'});
 }
-function typing(){
-  const w=document.createElement('div');w.className='sahara-wrap';w.id='typing';
-  w.innerHTML=`<div class="speaker">Sahara</div><div class="bubble sahara typing"><i></i><i></i><i></i></div>`;
-  $('#thread').appendChild(w);w.scrollIntoView({behavior:'smooth',block:'end'});
-}
-function untype(){const t=$('#typing');if(t)t.remove();}
-function showFacts(facts){
-  if(!facts||!facts.length)return;
-  const last=facts[facts.length-1];
-  const el=document.createElement('div');el.className='facts';
-  el.textContent='• noted: '+last.detail;
-  $('#thread').appendChild(el);
-}
+function state(t,cls){ $('#livestate').textContent=t; const o=$('#orb');
+  o.className='orb'+(cls?' '+cls:''); }
 
 $('#begin').onclick=async()=>{
+  const btn=$('#begin'); btn.disabled=true; btn.textContent='Connecting…';
   $('#setup-err').classList.add('hidden');
-  const btn=$('#begin');btn.disabled=true;btn.textContent='Connecting…';
   CHILD=$('#child').value.trim()||'you'; PARENT=$('#parent').value.trim()||'your parent';
   const med=$('#med').value.trim();
   try{
@@ -296,96 +363,125 @@ $('#begin').onclick=async()=>{
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
-    CALL=r.call_id; PARENT_ID=r.parent_id;
-    $('#setup').classList.add('hidden');
-    $('#call').classList.remove('hidden');
-    $('#callwho').textContent=`You are ${CHILD}. Answer as ${PARENT} would.`;
-    bubble('sahara', r.opening);
+    PARENT_ID=r.parent_id;
+    $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
+    $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
     $('#call').scrollIntoView({behavior:'smooth'});
-    $('#voicelink').href = '/mic?parent=' + PARENT_ID;
-    $('#line').focus();
-  }catch(e){
-    $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
-  }finally{ btn.disabled=false; btn.textContent='Begin the morning call  →'; }
+    await startVoice();
+  }catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden'); }
+  finally{ btn.disabled=false; btn.textContent='🎙  Begin the morning call'; }
 };
 
-async function send(){
-  const t=$('#line').value.trim(); if(!t||!CALL)return;
-  $('#line').value=''; autosize();
-  bubble('parent',t);
-  $('#send').disabled=true; typing();
-  try{
-    const r=await api(`/try/${CALL}/say`,{text:t});
-    untype();
-    if(r.reply) bubble('sahara',r.reply);
-    showFacts(r.facts);
-    $('#call-err').classList.add('hidden');
-  }catch(e){
-    untype();
-    const busy=/overloaded|quota|busy|try again/i.test(e.message);
-    $('#call-err').textContent=busy?('The line is busy for a moment — '+e.message+' Your reply is saved; press Say to try again.'):e.message;
-    $('#call-err').classList.remove('hidden');
-  }
-  finally{ $('#send').disabled=false; $('#line').focus(); }
+async function startVoice(){
+  ended=false; heard=0; pending=[];
+  const info=await api(`/try/${PARENT_ID}/voice-call`);
+  CALL=info.call_id;
+  stream=await navigator.mediaDevices.getUserMedia({
+    audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+  ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:PHONE_HZ});
+  await ctx.resume();
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET],{type:'text/javascript'})));
+  capNode=new AudioWorkletNode(ctx,'cap');
+  plyNode=new AudioWorkletNode(ctx,'ply',{numberOfInputs:0,outputChannelCount:[1]});
+  plyNode.connect(ctx.destination);
+  const sink=ctx.createGain(); sink.gain.value=0;
+  ctx.createMediaStreamSource(stream).connect(capNode); capNode.connect(sink); sink.connect(ctx.destination);
+
+  const proto=location.protocol==='https:'?'wss':'ws';
+  ws=new WebSocket(`${proto}://${location.host}/ws/twilio/${CALL}`);
+  ws.onopen=()=>{
+    ws.send(JSON.stringify({event:'start',streamSid:'MZtry',
+      start:{streamSid:'MZtry',customParameters:{call_id:CALL}}}));
+    state('Connected — she is about to speak','');
+    startPolling();
+  };
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data);
+    if(m.event==='media'){
+      heard++; lastAudio=Date.now(); state('Sahara is speaking','speaking');
+      const pcm=muDecode(unb64(m.media.payload));
+      const f=new Float32Array(pcm.length);
+      for(let i=0;i<pcm.length;i++) f[i]=pcm[i]/32768;
+      plyNode.port.postMessage({pcm:resample(f,PHONE_HZ,ctx.sampleRate)});
+    } else if(m.event==='clear'){ plyNode.port.postMessage({cmd:'clear'}); }
+  };
+  ws.onclose=()=>{ if(!ended) finish(); };
+  ws.onerror=()=>state('Connection problem','');
+
+  capNode.port.onmessage=e=>{
+    const at8k=resample(e.data,ctx.sampleRate,PHONE_HZ);
+    let peak=0; for(let i=0;i<at8k.length;i++) peak=Math.max(peak,Math.abs(at8k[i]));
+    $('#level').style.width=Math.min(100,peak*140)+'%';
+    if(Date.now()-lastAudio>900 && heard>10) state('Listening — speak now','listening');
+    const i16=new Int16Array(at8k.length);
+    for(let i=0;i<at8k.length;i++) i16[i]=Math.max(-32768,Math.min(32767,Math.round(at8k[i]*32767)));
+    pending.push(...i16);
+    while(pending.length>=FRAME && ws && ws.readyState===1){
+      ws.send(JSON.stringify({event:'media',media:{payload:b64(muEncode(Int16Array.from(pending.splice(0,FRAME))))}}));
+    }
+  };
 }
-$('#send').onclick=send;
-$('#line').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
-function autosize(){const l=$('#line');l.style.height='auto';l.style.height=Math.min(140,l.scrollHeight)+'px';}
-$('#line').addEventListener('input',autosize);
 
-const LEVEL={
-  none:{t:'A calm morning',c:'e-none'},
-  notify:{t:'Worth a call',c:'e-notify'},
-  urgent:{t:'Reach her today',c:'e-urgent'},
-  emergency:{t:'Call her now',c:'e-emergency'}
-};
-$('#endcall').onclick=async()=>{
-  if(!CALL)return;
-  $('#endcall').disabled=true;$('#endcall').textContent='Preparing the report…';
+// transcripts land in the database, not on the wire — read them back as we go
+function startPolling(){ if(poll) clearInterval(poll); poll=setInterval(renderTurns,1600); }
+let shown=0;
+async function renderTurns(){
   try{
-    const r=await api(`/try/${CALL}/end`,{});
+    const c=await api(`/try/${CALL}/report`,null,'GET');
+    (c.turns||[]).slice(shown).forEach(t=>bubble(t.who,t.text));
+    shown=(c.turns||[]).length;
+  }catch(e){}
+}
+
+$('#endcall').onclick=()=>{ try{ ws&&ws.readyState===1&&ws.send(JSON.stringify({event:'stop'})); }catch(e){}
+  try{ ws&&ws.close(); }catch(e){} finish(); };
+
+async function finish(){
+  if(ended) return; ended=true;
+  state('Call ended','');
+  if(poll){clearInterval(poll);poll=null}
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  if(ctx){ctx.close().catch(()=>{});ctx=null}
+  $('#endcall').disabled=true; $('#endcall').textContent='Preparing the report…';
+  await new Promise(r=>setTimeout(r,3500));      // summary + escalation run server-side
+  try{
+    const r=await api(`/try/${CALL}/report`,null,'GET');
+    await renderTurns();
     renderReport(r);
-    $('#call').classList.add('hidden');
-    $('#report').classList.remove('hidden');
+    $('#call').classList.add('hidden'); $('#report').classList.remove('hidden');
     $('#report').scrollIntoView({behavior:'smooth'});
   }catch(e){ $('#call-err').textContent=e.message; $('#call-err').classList.remove('hidden'); }
   finally{ $('#endcall').disabled=false; $('#endcall').textContent='End the call & see the report'; }
-};
+}
+
+const LEVEL={none:{t:'A calm morning',c:'e-none'},notify:{t:'Worth a call',c:'e-notify'},
+  urgent:{t:'Reach her today',c:'e-urgent'},emergency:{t:'Call her now',c:'e-emergency'}};
 
 function renderReport(r){
-  const e=r.escalation||{level:'none'};
-  const L=LEVEL[e.level]||LEVEL.none;
+  const e=r.escalation||{level:'none'}; const L=LEVEL[e.level]||LEVEL.none;
   $('#esc').innerHTML=`<div class="card"><div class="esc ${L.c}">
     <span class="lvl">${esc(e.level)}</span>
     <h3>${esc(e.headline||L.t)}</h3>
     ${e.reason?`<p>${esc(e.reason)}</p>`:''}
     ${e.recommended_action?`<p class="act">${esc(e.recommended_action)}</p>`:''}
   </div></div>`;
-
   $('#whoto').textContent=CHILD;
-  const msg=(r.summary&&r.summary.child_message)||'—';
-  $('#wamsg').textContent=msg;
-
+  $('#wamsg').textContent=(r.summary&&r.summary.child_message)||'—';
   const nodes=(r.memory&&r.memory.nodes||[]).filter(n=>n.status==='active');
   const order={health_thread:0,open_loop:1,person:2,medication:3};
   nodes.sort((a,b)=>(order[a.kind]??9)-(order[b.kind]??9));
   $('#memlist').innerHTML=nodes.map(n=>{
     const sev=n.severity==='urgent'?'urgent':n.severity==='warn'?'warn':'';
-    const kind=n.kind.replace('_',' ');
-    return `<li><span class="chip ${sev}">${esc(kind)}</span><span>${esc(n.detail||n.label)}</span></li>`;
+    return `<li><span class="chip ${sev}">${esc(n.kind.replace('_',' '))}</span><span>${esc(n.detail||n.label)}</span></li>`;
   }).join('')||'<li style="color:var(--faint)">Nothing yet.</li>';
-
   if(r.callback){ $('#cb').textContent=cbText(r.callback); $('#cbwrap').classList.remove('hidden'); }
   else $('#cbwrap').classList.add('hidden');
-
-  const facts=r.obs||[];
-  $('#factlist').innerHTML=facts.map(o=>{
+  $('#factlist').innerHTML=(r.obs||[]).map(o=>{
     const sev=o.severity==='urgent'?'urgent':o.severity==='warn'?'warn':'';
     return `<li><span class="chip ${sev}">${esc(o.kind)}</span><span>${esc(o.detail)}</span></li>`;
   }).join('')||'<li style="color:var(--faint)">A quiet call.</li>';
 }
 function cbText(instruction){
-  // surface the human part of the callback instruction, not the tooling
   let m=instruction.match(/follow up on what she told you (?:yesterday|last time)\s*[—-]\s*([^.]+)/i);
   if(m) return '“'+m[1].trim()+'” — how is it today?';
   m=instruction.match(/ask warmly about this one thing:\s*([^.]+?)(?:\s*—|\.)/i);
@@ -394,7 +490,7 @@ function cbText(instruction){
 }
 
 $('#again').onclick=()=>{
-  CALL=null;
+  CALL=null; shown=0;
   $('#thread').innerHTML=''; $('#report').classList.add('hidden');
   $('#setup').classList.remove('hidden');
   window.scrollTo({top:0,behavior:'smooth'});

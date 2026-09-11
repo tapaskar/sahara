@@ -230,7 +230,6 @@ class TryStartIn(BaseModel):
 
 @app.post("/api/try/start")
 async def try_start(body: TryStartIn):
-    from ..engine.text_chat import ModelBusy
     if body.language not in LANGUAGES:
         raise HTTPException(400, f"language must be one of {list(LANGUAGES)}")
     with session() as s:
@@ -245,12 +244,10 @@ async def try_start(body: TryStartIn):
                    phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
                    medications=json.dumps(body.medications), notes=note)
         s.add(p); s.commit(); s.refresh(p)
-    memory.ensure_seeded(p, fam.child_name)
-    try:
-        call = await calls.open_sim(p.id)
-    except ModelBusy as e:
-        raise HTTPException(503, str(e))
-    return {"parent_id": p.id, "call_id": call.id, "opening": calls.LiveCall(call.id).call.turns()[-1]["text"]}
+    memory.ensure_seeded(p, fam.child_name_native or fam.child_name)
+    # The persona only. The conversation itself is a voice call: /try/<pid>/voice-call
+    # opens the row, and the browser streams audio to it over the same bridge a phone uses.
+    return {"parent_id": p.id, "name": p.name, "language": p.language}
 
 
 class TrySayIn(BaseModel):
@@ -269,6 +266,54 @@ async def try_say(call_id: int, body: TrySayIn):
         raise HTTPException(409, str(e))
     except ModelBusy as e:
         raise HTTPException(503, str(e))
+
+
+DEMO_CALLS_PER_DAY = int(os.environ.get("SAHARA_DEMO_MAX_CALLS", "60"))
+
+
+def _demo_only():
+    if not config.DEMO:
+        raise HTTPException(404, "not found")
+
+
+def _demo_budget():
+    """A public microphone is an open cost vector: Live audio runs ~10x a text turn.
+    Cap the demo's voice calls per day so a shared link cannot run up a bill."""
+    since = utcnow() - timedelta(hours=24)
+    with session() as s:
+        used = len(s.exec(select(Call).where(Call.provider == "browser",
+                                             Call.created_at >= since)).all())
+    if used >= DEMO_CALLS_PER_DAY:
+        raise HTTPException(429, "The demo has reached today's voice-call limit. "
+                                 "Please try again tomorrow.")
+
+
+@app.post("/api/try/{pid}/voice-call")
+def try_voice_call(pid: int):
+    """A call row for the demo's browser microphone — no operator token, but budgeted."""
+    _demo_only(); _demo_budget()
+    with session() as s:
+        parent = s.get(Parent, pid)
+        if parent is None or not parent.active:
+            raise HTTPException(404, "no such parent")
+        call = Call(parent_id=parent.id, kind="checkin", status="scheduled", attempt=1,
+                    provider="browser", provider_call_id="demo",
+                    engine=make_engine().name, started_at=utcnow())
+        s.add(call); s.commit(); s.refresh(call)
+        return {"call_id": call.id, "parent": parent.name, "engine": call.engine}
+
+
+@app.get("/api/try/{call_id}/report")
+def try_report(call_id: int):
+    """What the call produced: transcript, facts, summary, escalation, memory."""
+    _demo_only()
+    with session() as s:
+        c = s.get(Call, call_id)
+        if c is None:
+            raise HTTPException(404, "no such call")
+        pid = c.parent_id
+    return {**get_call_public(call_id), "memory": memory.graph(pid),
+            "callback": memory.callback(pid)}
 
 
 @app.post("/api/try/{call_id}/end")
