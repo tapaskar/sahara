@@ -23,6 +23,7 @@ DATABASE_URL = env("SAHARA_DATABASE_URL") or f"sqlite:///{DATA_DIR / 'sahara.db'
 TIMEZONE = env("SAHARA_TIMEZONE", "Asia/Kolkata")
 RETENTION_DAYS = int(env("SAHARA_RETENTION_DAYS", "30"))         # DPDP: keep transcripts briefly
 OPERATOR_TOKEN = env("SAHARA_OPERATOR_TOKEN")                     # protects the dashboard/API
+DEMO = flag("SAHARA_DEMO")             # public /try only: no scheduler, no outbound calls
 
 # --- Gemini ------------------------------------------------------------------
 GEMINI_LIVE_MODEL = env("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")

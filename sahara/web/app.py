@@ -32,6 +32,9 @@ init_db()
 @app.on_event("startup")
 async def _startup():
     global _sched
+    if config.DEMO:
+        logging.getLogger("sahara.web").info("demo mode: /try only, scheduler off, no outbound calls")
+        return
     if not config.OFFLINE:
         auth = _gemini_auth()
         if auth.startswith("NONE"):
