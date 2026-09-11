@@ -293,7 +293,9 @@ class LiveCall:
             s.add(c); s.commit()
         log.info("call %s escalation: %s (%s)", self.call_id, esc.level, "; ".join(esc.signals))
 
-        channel, ok = await notify.send_whatsapp(self.family.child_phone, summary.child_message)
+        invite = f"\n\nReply with anything you want me to ask {self.parent.name} tomorrow."
+        channel, ok = await notify.send_whatsapp(self.family.child_phone,
+                                                 summary.child_message + invite)
         with session() as s:
             s.add(notify.alert_row(self.parent.id, self.call_id, "summary", "info",
                                    summary.child_message, channel, ok))

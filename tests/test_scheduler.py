@@ -16,6 +16,9 @@ def test_due_parents_by_local_time_and_once_per_day():
     ist = ZoneInfo("Asia/Kolkata")
     now = datetime.now(ist).replace(hour=7, minute=15)
     assert p["id"] in scheduler.due_parents(now)
-    assert p["id"] not in scheduler.due_parents(now.replace(minute=16))
+    # a missed tick used to skip the whole day: the 15-minute catch-up window covers it
+    assert p["id"] in scheduler.due_parents(now.replace(minute=16))
+    assert p["id"] not in scheduler.due_parents(now.replace(minute=31))   # window closed
+    assert p["id"] not in scheduler.due_parents(now.replace(minute=14))   # not yet due
     client.post(f"/api/parents/{p['id']}/call-now")
     assert p["id"] not in scheduler.due_parents(now)      # already called today

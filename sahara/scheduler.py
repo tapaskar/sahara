@@ -15,14 +15,27 @@ from .models import Call, Parent
 log = logging.getLogger("sahara.scheduler")
 
 
+CATCHUP_MINUTES = 15   # a missed tick (deploy, restart) must not silently skip a whole day
+
+
 def due_parents(now_local: datetime) -> list[int]:
-    """Parents whose call_time is now (HH:MM) and who have no check-in started today."""
-    hhmm = now_local.strftime("%H:%M")
+    """Parents whose call_time has arrived within the last CATCHUP_MINUTES and who have no
+    check-in started today. A window rather than an exact HH:MM match: with exact matching,
+    one coalesced tick at their single minute silently skipped the entire day, and a missed
+    day is indistinguishable from "all fine" to both sides."""
     day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    minutes_now = now_local.hour * 60 + now_local.minute
     out = []
     with session() as s:
         for p in s.exec(select(Parent).where(Parent.active == True, Parent.consent == True)).all():  # noqa: E712
-            if p.call_time != hhmm:
+            if p.pause_until and p.pause_until >= now_local.date():
+                continue                                   # family asked for quiet
+            try:
+                hh, mm = p.call_time.split(":")
+                mins = int(hh) * 60 + int(mm)
+            except ValueError:
+                continue
+            if not (0 <= minutes_now - mins < CATCHUP_MINUTES):
                 continue
             today = s.exec(select(Call).where(Call.parent_id == p.id, Call.kind == "checkin",
                                               Call.created_at >= day_start)).first()

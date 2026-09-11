@@ -52,6 +52,7 @@ WHATSAPP = env("SAHARA_WHATSAPP", "console")
 META_WA_TOKEN = env("META_WA_TOKEN")
 META_WA_PHONE_ID = env("META_WA_PHONE_ID")
 META_WA_TEMPLATE = env("META_WA_TEMPLATE", "sahara_daily_summary")   # approved template name
+META_WA_VERIFY_TOKEN = env("META_WA_VERIFY_TOKEN")                  # webhook handshake for the reply loop
 TWILIO_WA_FROM = env("TWILIO_WA_FROM", "whatsapp:+14155238886")       # sandbox by default
 
 # --- call behaviour ------------------------------------------------------------

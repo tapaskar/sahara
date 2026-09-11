@@ -15,7 +15,7 @@ from sqlmodel import select
 
 from .. import __version__, calls, config, scheduler
 from ..db import init_db, session
-from .. import guardrails, memory
+from .. import guardrails, inbox, memory
 from ..engine import make_engine
 from ..gemini import using_vertex
 from ..models import Alert, Call, Family, Parent, utcnow
@@ -497,6 +497,33 @@ async def simulate(pid: int, body: SimulateIn):
             raise HTTPException(404, "no such parent")
     c = await calls.simulate_checkin(pid, body.parent_lines)
     return get_call(c.id)
+
+
+@app.get("/whatsapp/webhook")
+def whatsapp_verify(request: Request):
+    """Meta's webhook handshake: echo hub.challenge when the verify token matches."""
+    q = request.query_params
+    if q.get("hub.mode") == "subscribe" and config.META_WA_VERIFY_TOKEN \
+            and q.get("hub.verify_token") == config.META_WA_VERIFY_TOKEN:
+        return Response(q.get("hub.challenge", ""), media_type="text/plain")
+    raise HTTPException(403, "verification failed")
+
+
+@app.post("/whatsapp/webhook")
+async def whatsapp_inbound(request: Request):
+    """The family's replies. Always 200: Meta retries anything else, and a stranger's
+    message must vanish silently rather than bounce."""
+    try:
+        payload = await request.json()
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                for msg in (change.get("value", {}).get("messages") or []):
+                    if msg.get("type") == "text":
+                        await inbox.handle(msg.get("from", ""),
+                                           msg.get("text", {}).get("body", ""))
+    except Exception as e:
+        logging.getLogger("sahara.web").warning("whatsapp inbound failed: %s", e)
+    return {"ok": True}
 
 
 @app.post("/api/scheduler/tick", dependencies=[Depends(operator)])

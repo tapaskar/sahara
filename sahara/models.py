@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlmodel import Field, SQLModel
 
@@ -38,6 +38,7 @@ class Parent(SQLModel, table=True):
     conditions: str = ""                  # doctor-recorded, comma separated; see guardrails.py
     notes: str = ""                       # context for the agent: town, habits, what they like to talk about
     active: bool = True
+    pause_until: date | None = None       # family said: no calls until this date (travel, mourning)
     created_at: datetime = Field(default_factory=utcnow)
 
     def meds(self) -> list[dict]:
