@@ -139,7 +139,7 @@ sahara/
   scheduler.py    the minute tick
   web/app.py      webhooks, WebSocket, operator API, dashboard
   web/static/     index.html (desk), mic.html (browser mic), simulator.html (/try demo)
-scripts/seed.py   scripts/fake_phone.py   deploy/cloud_run.sh   tests/
+scripts/seed.py   scripts/fake_phone.py   deploy/cloud_run.sh   fly.toml (demo)   tests/
 ```
 
 ## Licence

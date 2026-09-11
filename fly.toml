@@ -1,0 +1,46 @@
+# Fly.io config for the shareable /try demo — a single small machine in Mumbai.
+#
+# Why this platform for the demo: the app is a stateful container (SQLite rebuilt per
+# request, a scheduler in the full product, WebSockets for call audio), so it needs a
+# real always-on machine with a disk — not request-scoped serverless. Fly's bom region
+# puts it inside India (~sub-20 ms for Indian visitors) at ~$4-6/month all in.
+#
+#   fly launch --no-deploy         # first time: creates the app from this file
+#   fly volumes create sahara_data --region bom --size 1
+#   fly secrets set GOOGLE_API_KEY=... SAHARA_OPERATOR_TOKEN=...
+#   fly deploy
+#   -> share https://<app>.fly.dev/try
+
+app = "sahara-demo"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SAHARA_DEMO = "1"                 # /try only: scheduler off, no outbound calls
+  SAHARA_DATA_DIR = "/data"
+  SAHARA_TIMEZONE = "Asia/Kolkata"
+  GEMINI_TEXT_MODEL = "gemini-3.5-flash"
+
+[mounts]
+  source = "sahara_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"        # SQLite conversations live on this one machine
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "20s"
+  method = "GET"
+  path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
