@@ -253,3 +253,29 @@ async def test_resolving_a_thread_stops_it_leading():
     # next call: she says it's healed
     memory.close_loop(pid, "Ankle swelling", "healed, no more swelling")
     assert "ankle" not in memory.callback(pid).lower()
+
+
+async def test_a_restated_fact_is_logged_once_but_can_get_worse():
+    """The model re-states earlier facts when it circles back to an unanswered question,
+    so the same observation arrives twice in one call. Keep one — but a later, more
+    serious mention must still raise the severity."""
+    from sahara.calls import LiveCall
+
+    pid = _parent()
+    call_id = client.post(f"/api/parents/{pid}/mic-call").json()["call_id"]
+    live = LiveCall(call_id)
+
+    async def obs(kind, detail, severity="info"):
+        return await live.on_tool_call({"id": "x", "name": "log_observation",
+                                        "args": {"kind": kind, "detail": detail, "severity": severity}})
+
+    await obs("meal", "Ate poha for breakfast")
+    await obs("meal", "ate poha for breakfast.")        # same fact, restated
+    await obs("sleep", "Slept well")
+    assert [o["kind"] for o in live.obs] == ["meal", "sleep"], live.obs
+
+    # the knee ache turns out to be worse than first stated
+    await obs("health", "Knee pain", "info")
+    await obs("health", "knee pain", "warn")
+    health = [o for o in live.obs if o["kind"] == "health"]
+    assert len(health) == 1 and health[0]["severity"] == "warn"

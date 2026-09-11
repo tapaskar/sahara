@@ -219,7 +219,9 @@ def mic_call(pid: int):
 
 class TryStartIn(BaseModel):
     child_name: str                       # "you are ___"
+    child_name_native: str = ""           # how she says it, in her script
     parent_name: str                      # "...health updates of ___"
+    parent_name_native: str = ""
     relation: str = "parent"              # "...who is your ___"
     language: str = "hi-IN"
     notes: str = ""
@@ -232,12 +234,14 @@ async def try_start(body: TryStartIn):
     if body.language not in LANGUAGES:
         raise HTTPException(400, f"language must be one of {list(LANGUAGES)}")
     with session() as s:
-        fam = Family(child_name=body.child_name.strip() or "the child", child_phone="+demo")
+        fam = Family(child_name=body.child_name.strip() or "the child",
+                     child_name_native=body.child_name_native.strip(), child_phone="+demo")
         s.add(fam); s.commit(); s.refresh(fam)
         note = body.notes.strip()
         rel = body.relation.strip() or "parent"
         note = (f"{body.parent_name.strip()} is the {rel} of {body.child_name.strip()}. " + note).strip()
         p = Parent(family_id=fam.id, name=body.parent_name.strip() or "your parent",
+                   name_native=body.parent_name_native.strip(),
                    phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
                    medications=json.dumps(body.medications), notes=note)
         s.add(p); s.commit(); s.refresh(p)

@@ -160,6 +160,16 @@ class LiveCall:
         if name == "log_observation":
             kind, detail = args.get("kind", "other"), args.get("detail", "")
             severity = args.get("severity", "info")
+            # The model re-states earlier facts when it circles back to an unanswered
+            # question, so the same observation can arrive twice in one call. Keep the
+            # first, but let a later mention raise the severity.
+            key = (kind, memory.normalise(detail))
+            prior = next((o for o in self.obs
+                          if (o.get("kind"), memory.normalise(o.get("detail", ""))) == key), None)
+            if prior is not None:
+                if memory.SEVERITY_RANK.get(severity, 0) > memory.SEVERITY_RANK.get(prior.get("severity"), 0):
+                    prior["severity"] = severity
+                return {"ok": True}
             self.obs.append({"kind": kind, "detail": detail, "severity": severity})
             if detail and self.call.kind == "checkin":
                 # deterministic fan-out from an in-call tool write (the only canonical

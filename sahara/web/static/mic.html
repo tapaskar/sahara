@@ -284,7 +284,16 @@ async function loadParents() {
     $('#setup-note').innerHTML = '<span class="bad">' + escapeHtml(e.message) + '</span> — set the operator token above if one is configured.';
   }
 }
-loadParents();
+// /try hands off its persona here: ?parent=N skips the token-gated parent list
+const preset = new URLSearchParams(location.search).get('parent');
+if (preset) {
+  const sel = $('#parent');
+  sel.innerHTML = `<option value="${preset}">the parent you just set up</option>`;
+  $('#setup-note').textContent = 'Ready. Press Start call and speak — an operator token is '
+    + 'needed if the server has one set.';
+} else {
+  loadParents();
+}
 </script>
 </body>
 </html>

@@ -57,6 +57,10 @@
   .go:hover{background:#a2571f;transform:translateY(-1px)}
   .go:disabled{opacity:.5;transform:none;cursor:default}
   .ghost{background:transparent;color:var(--dim);border:1px solid var(--line)}
+  .voice{display:inline-block;margin-left:10px;padding:14px 22px;border-radius:12px;
+    border:1px solid var(--gold);color:var(--accent);text-decoration:none;
+    font-family:system-ui,sans-serif;font-weight:600;font-size:15px;transition:.15s}
+  .voice:hover{background:var(--accent-soft)}
   .ghost:hover{color:var(--ink);border-color:var(--gold)}
   .hint{font-family:system-ui,sans-serif;font-size:13px;color:var(--faint);margin-top:10px}
 
@@ -151,6 +155,18 @@
 
       <div class="row" style="margin-top:26px">
         <div class="field">
+          <label>Her name in her own script <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input id="parent-native" placeholder="सुशीला देवी">
+        </div>
+        <div class="field">
+          <label>Your name, as she says it <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input id="child-native" placeholder="रवि">
+        </div>
+      </div>
+      <div class="hint" style="margin:-12px 0 20px">Sahara speaks these aloud — in Devanagari they sound native, in Latin they read as a jarring code-switch.</div>
+
+      <div class="row">
+        <div class="field">
           <label>Her language</label>
           <select id="language">
             <option value="hi-IN">Hindi</option>
@@ -191,7 +207,11 @@
         <button class="go" id="send">Say</button>
       </div>
       <div class="hint">When you're done, end the call to see what Sahara took away from it.</div>
-      <div style="margin-top:14px"><button class="ghost" id="endcall">End the call &amp; see the report</button></div>
+      <div style="margin-top:14px">
+        <button class="ghost" id="endcall">End the call &amp; see the report</button>
+        <a class="voice" id="voicelink" href="#" target="_blank" rel="noopener">🎙 Speak to her instead</a>
+      </div>
+      <div class="hint" id="voicehint">The voice version uses your microphone and real telephone-quality audio.</div>
       <div class="err hidden" id="call-err"></div>
     </div>
   </section>
@@ -229,7 +249,7 @@
 
 <script>
 const $=s=>document.querySelector(s);
-let CALL=null, CHILD="", PARENT="";
+let CALL=null, PARENT_ID=null, CHILD="", PARENT="";
 async function api(path,body){
   const r=await fetch('/api'+path,{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify(body||{})});
@@ -271,15 +291,18 @@ $('#begin').onclick=async()=>{
   try{
     const r=await api('/try/start',{
       child_name:CHILD, parent_name:PARENT, relation:$('#relation').value.trim()||'parent',
+      child_name_native:$('#child-native').value.trim(),
+      parent_name_native:$('#parent-native').value.trim(),
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
-    CALL=r.call_id;
+    CALL=r.call_id; PARENT_ID=r.parent_id;
     $('#setup').classList.add('hidden');
     $('#call').classList.remove('hidden');
     $('#callwho').textContent=`You are ${CHILD}. Answer as ${PARENT} would.`;
     bubble('sahara', r.opening);
     $('#call').scrollIntoView({behavior:'smooth'});
+    $('#voicelink').href = '/mic?parent=' + PARENT_ID;
     $('#line').focus();
   }catch(e){
     $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
