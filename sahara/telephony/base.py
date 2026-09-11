@@ -2,13 +2,26 @@
 audio to us over a WebSocket, dial the parent after screening, hang up."""
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 
 from .. import config
 
 
 def ws_base() -> str:
-    return config.PUBLIC_URL.replace("https://", "wss://").replace("http://", "ws://").rstrip("/")
+    """The wss:// origin the provider dials back into.
+
+    Twilio accepts Stream urls over wss:// ONLY (its TwiML reference is explicit), and a
+    plain-http SAHARA_PUBLIC_URL yields ws:// — which is not rejected at configuration
+    time but fails once the call is already connected, so it reads as a broken product.
+    Warn loudly rather than let that reach a real phone."""
+    url = config.PUBLIC_URL.rstrip("/")
+    if url.startswith("http://") and not config.OFFLINE and "localhost" not in url \
+            and "127.0.0.1" not in url:
+        logging.getLogger("sahara.telephony").error(
+            "SAHARA_PUBLIC_URL is http:// — Twilio and Plivo only dial wss:// media streams, "
+            "so calls will connect and then drop. Use the https URL of your tunnel: %s", url)
+    return url.replace("https://", "wss://").replace("http://", "ws://")
 
 
 class Telephony(ABC):

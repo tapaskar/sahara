@@ -321,3 +321,48 @@ async def test_call_back_later_defers_without_summary_spam():
     # not due before her hour is up; due after it
     assert all(c.id != call_id for c in calls_mod.due_retries(utcnow() + timedelta(minutes=30)))
     assert any(c.id == call_id for c in calls_mod.due_retries(utcnow() + timedelta(minutes=61)))
+
+
+def test_the_twiml_matches_twilios_documented_stream_protocol(monkeypatch):
+    """Checked against twilio.com/docs/voice/twiml/stream and the Media Streams WebSocket
+    message reference: bidirectional needs <Connect>, the url must be wss://, and the
+    outbound media/clear frames must carry the streamSid Twilio sent us."""
+    from sahara import config
+    from sahara.telephony.twilio import Twilio
+
+    monkeypatch.setattr(config, "PUBLIC_URL", "https://example.test")
+    t = Twilio()
+
+    xml = t.answer_xml(42)
+    assert "<Connect>" in xml, "bidirectional audio requires <Connect>, not <Start>"
+    assert 'url="wss://example.test/ws/twilio/42"' in xml, "Twilio accepts wss:// only"
+    assert '<Parameter name="call_id" value="42"/>' in xml   # arrives as customParameters
+
+    # <Connect> blocks later TwiML until the socket closes, so the screener's Redirect
+    # is what runs after the stream ends
+    assert t.answer_xml(42, after_url="https://example.test/next").index("<Redirect") \
+        > xml.index("</Connect>") - 1
+
+    start = {"event": "start", "sequenceNumber": "1", "streamSid": "MZabc",
+             "start": {"accountSid": "AC1", "streamSid": "MZabc", "callSid": "CA1",
+                       "tracks": ["inbound"],
+                       "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000,
+                                       "channels": 1},
+                       "customParameters": {"call_id": "42"}}}
+    ev, audio, meta = t.parse_frame(start)
+    assert (ev, audio) == ("start", None)
+    assert meta["stream_sid"] == "MZabc" and meta["params"]["call_id"] == "42"
+
+    assert t.parse_frame({"event": "media", "streamSid": "MZabc",
+                          "media": {"track": "inbound", "chunk": "1", "timestamp": "5",
+                                    "payload": "fw=="}})[:2] == ("media", b"\x7f")
+    assert t.parse_frame({"event": "stop", "streamSid": "MZabc", "stop": {}})[0] == "stop"
+    # connected / dtmf / mark are documented events we neither need nor may crash on
+    for other in ({"event": "connected", "protocol": "Call", "version": "1.0.0"},
+                  {"event": "dtmf", "streamSid": "MZabc", "dtmf": {"digit": "1"}},
+                  {"event": "mark", "streamSid": "MZabc", "mark": {"name": "x"}}):
+        assert t.parse_frame(other)[0] == "other"
+
+    assert t.audio_frame(b"\x7f", meta) == {"event": "media", "streamSid": "MZabc",
+                                            "media": {"payload": "fw=="}}
+    assert t.clear_frame(meta) == {"event": "clear", "streamSid": "MZabc"}
