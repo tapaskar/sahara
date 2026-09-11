@@ -15,7 +15,7 @@ from sqlmodel import select
 
 from .. import __version__, calls, config, scheduler
 from ..db import init_db, session
-from .. import memory
+from .. import guardrails, memory
 from ..engine import make_engine
 from ..gemini import using_vertex
 from ..models import Alert, Call, Family, Parent, utcnow
@@ -102,6 +102,9 @@ class ParentIn(BaseModel):
     family_id: int
     name: str
     name_native: str = ""
+    relation: str = ""
+    gender: str = ""
+    conditions: str = ""
     phone: str
     language: str = "hi-IN"
     call_time: str = "08:30"
@@ -124,7 +127,11 @@ def create_parent(body: ParentIn):
         if s.get(Family, body.family_id) is None:
             raise HTTPException(404, "no such family")
         family = s.get(Family, body.family_id)
-        p = Parent(**{**body.model_dump(exclude={"medications"}), "medications": json.dumps(body.medications),
+        fields = body.model_dump(exclude={"medications"})
+        fields["gender"] = (fields.get("gender")
+                            or guardrails.gender_from_relation(body.relation)
+                            or guardrails.gender_from_relation(body.notes))
+        p = Parent(**{**fields, "medications": json.dumps(body.medications),
                       "consent_at": utcnow() if body.consent else None})
         s.add(p); s.commit(); s.refresh(p)
     memory.ensure_seeded(p, family.child_name_native or family.child_name)      # give the first call something to remember
@@ -225,6 +232,7 @@ class TryStartIn(BaseModel):
     parent_name_native: str = ""
     relation: str = "parent"              # "...who is your ___"
     gender: str = ""                      # female | male — Indic verbs conjugate on it
+    conditions: str = ""                  # doctor-recorded, e.g. "diabetes, high blood pressure"
     language: str = "hi-IN"
     notes: str = ""
     medications: list[dict] = []
@@ -238,12 +246,16 @@ async def try_start(body: TryStartIn):
         fam = Family(child_name=body.child_name.strip() or "the child",
                      child_name_native=body.child_name_native.strip(), child_phone="+demo")
         s.add(fam); s.commit(); s.refresh(fam)
+        # the relation is a field, not prose buried in the notes — the header used to assert
+        # its own ("their child") and win the argument against the family's own words
+        rel = body.relation.strip()
         note = body.notes.strip()
-        rel = body.relation.strip() or "parent"
-        note = (f"{body.parent_name.strip()} is the {rel} of {body.child_name.strip()}. " + note).strip()
         p = Parent(family_id=fam.id, name=body.parent_name.strip() or "your parent",
                    name_native=body.parent_name_native.strip(),
-                   gender=body.gender.strip().lower(),
+                   relation=rel,
+                   gender=(body.gender.strip().lower()
+                           or guardrails.gender_from_relation(body.relation)),
+                   conditions=body.conditions.strip(),
                    demo_visitor=body.visitor.strip(),
                    phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
                    medications=json.dumps(body.medications), notes=note)

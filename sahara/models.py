@@ -33,6 +33,8 @@ class Parent(SQLModel, table=True):
     consent: bool = False                 # explicit, recorded; nothing is called without it
     consent_at: datetime | None = None
     medications: str = "[]"               # JSON list of {"name","when"}
+    relation: str = ""                    # what THEY are to the child: mother, father, dadi...
+    conditions: str = ""                  # doctor-recorded, comma separated; see guardrails.py
     notes: str = ""                       # context for the agent: town, habits, what they like to talk about
     active: bool = True
     created_at: datetime = Field(default_factory=utcnow)

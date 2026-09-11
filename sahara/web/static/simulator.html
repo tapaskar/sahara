@@ -174,6 +174,7 @@
         who is your
         <input class="inl" id="relation" placeholder="mother" value="mother">
         <select class="inl" id="gender" style="min-width:auto">
+          <option value="">— …</option>
           <option value="female">— and she is a woman</option>
           <option value="male">— and he is a man</option>
         </select>.
@@ -208,8 +209,17 @@
           </select>
         </div>
         <div class="field">
-          <label>A medicine she takes (optional)</label>
+          <label>A medicine they take (optional)</label>
           <input id="med" placeholder="e.g. Amlodipine, mornings">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Conditions their doctor has noted (optional)</label>
+          <input id="conditions" placeholder="e.g. diabetes, high blood pressure">
+          <div class="hint" style="margin-top:6px">Only what a doctor already told them. She will
+            gently recall that advice if they mention a food it concerns — once, warmly, never as a
+            rule. She never diagnoses and never prescribes.</div>
         </div>
       </div>
       <div class="field">
@@ -405,6 +415,7 @@ $('#begin').onclick=async()=>{
       child_name_native:$('#child-native').value.trim(),
       parent_name_native:$('#parent-native').value.trim(),
       gender:$('#gender').value,
+      conditions:$('#conditions').value.trim(),
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
@@ -577,6 +588,19 @@ async function loadMine(){
     $('#resume').classList.remove('hidden');
   }catch(e){}
 }
+// "father" is unambiguous where a dropdown default is not: a silent default once tagged a
+// man named Arvind as female, and Hindi then addressed him as a woman for the whole call.
+const REL_FEMALE=/mother|mom|mum|maa|amma|ammi|mata|dadi|nani|aunt|wife|माँ|माता|अम्मा/i;
+const REL_MALE=/father|dad|papa|baba|appa|abba|pita|dada|nana|uncle|husband|बाबा|पिता|पापा/i;
+let genderTouched=false;
+$('#gender').addEventListener('change',()=>{genderTouched=true});
+$('#relation').addEventListener('input',()=>{
+  if(genderTouched) return;
+  const t=$('#relation').value;
+  $('#gender').value = REL_FEMALE.test(t) ? 'female' : REL_MALE.test(t) ? 'male' : '';
+});
+$('#relation').dispatchEvent(new Event('input'));
+
 loadMine();
 
 async function resume(d){

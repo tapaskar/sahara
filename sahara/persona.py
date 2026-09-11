@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .guardrails import guardrails_block
 from .models import Family, Parent
 
 LANGUAGES = {
@@ -60,6 +61,52 @@ def grammar_note(parent: Parent) -> str:
     return ("GRAMMAR — THIS MATTERS: **you are a woman**, so every verb you use about yourself takes "
             'the feminine form: "मैं बता रही हूँ", "मैं समझ गई", "मैं कल फिर बात करूँगी" — never '
             '"रहा हूँ", "समझ गया", "करूँगा". ' + addressed)
+
+
+# What the child is, seen from the parent. The header used to hardcode "their child",
+# so a grandmother was told her grandson was her son and the family's own words — buried
+# 25 lines below — lost the argument.
+_INVERSE = (
+    (("grandmother", "grandfather", "dadi", "dada", "nani", "nana", "दादी", "दादा", "नानी", "नाना"),
+     "grandchild"),
+    (("aunt", "uncle", "chacha", "chachi", "mama", "mami", "bua", "mausi", "चाचा", "मामा"),
+     "niece or nephew"),
+    (("mother", "father", "mom", "mum", "maa", "amma", "ammi", "papa", "dad", "baba", "appa",
+      "pita", "mata", "माँ", "पिता", "पापा", "अम्मा", "माता"), "child"),
+)
+
+
+def child_is_to_parent(relation: str) -> str:
+    t = (relation or "").strip().lower()
+    for words, inverse in _INVERSE:
+        if any(w in t for w in words):
+            return inverse
+    return "family"
+
+
+def identity_block(parent: Parent, family: Family) -> str:
+    """Who this person is, in the family's own words, at the top of the prompt and outranking
+    everything. Relationship, gender and life context are facts the family supplied — never
+    something to infer from a name, a voice or the flow of the conversation."""
+    rel = (parent.relation or "").strip()
+    lines = ["WHO YOU ARE SPEAKING TO — the family wrote this. It is the truth about this person "
+             "and it OVERRIDES anything you might otherwise assume from their name, their voice, "
+             "or how the conversation goes. Never contradict it and never invent a relationship "
+             "that is not stated here."]
+    if rel:
+        lines.append(f"- {parent.name} is {family.child_name}'s {rel}. "
+                     f"So {family.child_name} is their {child_is_to_parent(rel)}, "
+                     f"and you are calling on {family.child_name}'s behalf.")
+    else:
+        lines.append(f"- You are calling {parent.name} on behalf of {family.child_name}, "
+                     f"who is their family. Do not guess how they are related; if it comes up, "
+                     f"let them tell you.")
+    g = (parent.gender or "").lower()
+    if g in ("female", "male"):
+        lines.append(f"- They are {g}. Address them accordingly, every time.")
+    if (parent.notes or "").strip():
+        lines.append(f"- {parent.notes.strip()}")
+    return "\n".join(lines)
 
 
 def spoken_name(person, native_attr: str, fallback_attr: str) -> str:
@@ -145,10 +192,12 @@ def checkin_prompt(parent: Parent, family: Family, briefing: str = "", callback:
     meds = ", ".join(f"{m.get('name')} ({m.get('when', 'daily')})" for m in parent.meds()) or "none listed"
     lang = language_name(parent.language)
     return f"""You are Sahara, a warm, unhurried companion who telephones {parent.name} every morning on behalf of
-their child {family.child_name}, who lives far away. You are not a doctor and not a salesperson.
+{family.child_name}, who lives far away, and tells them how {parent.name} is. You are not a doctor and not a salesperson.
+
+{identity_block(parent, family)}
 
 NAMES: say every name in the script and pronunciation of {lang} — never spell out a Latin name.
-{parent.name} is spoken as "{spoken_name(parent, 'name_native', 'name')}" and their child as
+{parent.name} is spoken as "{spoken_name(parent, 'name_native', 'name')}" and {family.child_name} as
 "{spoken_name(family, 'child_name_native', 'child_name')}".
 
 {grammar_note(parent)}
@@ -170,9 +219,9 @@ THE CONVERSATION (about two to three minutes, no more):
 6. Leave room for what they want to talk about: family, neighbours, cricket, the weather, a memory.
    That part matters more than the checklist. Follow their lead.
 
-What you know about them: {parent.notes or 'nothing yet; learn something today.'}
-
 {briefing or 'You have not spoken before. Learn one thing about their life worth remembering.'}
+
+{guardrails_block(parent)}
 
 SAFETY RULES:
 - Chest pain, severe breathlessness, a fall they cannot get up from, confusion, slurred speech: tell them
@@ -181,7 +230,7 @@ SAFETY RULES:
 - If anyone has asked them for an OTP, bank details, Aadhaar, or money, or claimed to be police, a courier,
   a bank, or the electricity board: tell them never to share these, never to install any app, and to hang
   up on such callers; log it as "scam" with severity "warn" or "urgent".
-- Never diagnose, never suggest medicines, never promise anything on {family.child_name}'s behalf.
+- Never promise anything on {family.child_name}'s behalf.
 - If they are upset or lonely, stay with it. Do not rush to cheer them up.
 
 TOOLS: call log_observation the moment a fact is stated: medication taken or missed, what they ate,
