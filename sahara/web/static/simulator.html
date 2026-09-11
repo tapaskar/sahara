@@ -134,6 +134,9 @@
     font-style:italic;color:var(--ink);margin-top:16px}
   .callback b{font-style:normal;font-family:system-ui,sans-serif;font-size:11px;letter-spacing:.1em;
     text-transform:uppercase;color:var(--gold);display:block;margin-bottom:6px;font-weight:600}
+  .resume{background:var(--panel2);border:1px dashed var(--gold);border-radius:14px;
+    padding:18px 20px;margin:0 0 22px}
+  .resume p{margin:0 0 14px;font-style:italic;color:var(--ink)}
   .nextday{text-align:center;margin-top:30px;background:var(--panel);border:1px solid var(--line);
     border-radius:18px;padding:26px 24px;box-shadow:0 18px 40px -30px rgba(90,60,30,.4)}
   .nextday p{margin:0 0 18px;color:var(--dim);font-style:italic;font-size:17px}
@@ -207,6 +210,11 @@
         <label>Anything worth knowing about her (optional)</label>
         <textarea id="notes" placeholder="Lives alone in Cuttack, loves cricket, misses her grandchildren"></textarea>
       </div>
+      <div class="resume hidden" id="resume">
+        <p id="resumecopy"></p>
+        <button class="go" id="resumebtn">🎙 &nbsp;Continue with her</button>
+        <div class="hint" style="margin-top:8px">or set up someone new below</div>
+      </div>
       <button class="go" id="begin">🎙 &nbsp;Begin the morning call</button>
       <div class="hint">You'll play her part, in your own voice. Your browser will ask for the microphone. Sahara speaks first.</div>
       <div class="err hidden" id="setup-err"></div>
@@ -271,7 +279,11 @@
 <script>
 const $=s=>document.querySelector(s);
 const PHONE_HZ=8000, FRAME=160;
-let CALL=null, PARENT_ID=null, CHILD="", PARENT="", DAY=0;
+let CALL=null, PARENT_ID=null, CHILD="", PARENT="", DAY=0, TOKEN="";
+const SAVE='sahara_demo_persona';
+function remember(){ try{ localStorage.setItem(SAVE, JSON.stringify(
+  {PARENT_ID,TOKEN,CHILD,PARENT,DAY})) }catch(e){} }
+function recall(){ try{ return JSON.parse(localStorage.getItem(SAVE)||'null') }catch(e){ return null } }
 // the persona persists across calls — that is the whole point: tomorrow she remembers
 let ctx,ws,stream,capNode,plyNode,poll,pending=[],heard=0,lastAudio=0,ended=false;
 
@@ -378,7 +390,7 @@ $('#begin').onclick=async()=>{
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
-    PARENT_ID=r.parent_id;
+    PARENT_ID=r.parent_id; TOKEN=r.token; DAY=0; remember();
     $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
     $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
     $('#call').scrollIntoView({behavior:'smooth'});
@@ -389,11 +401,11 @@ $('#begin').onclick=async()=>{
 
 async function startVoice(){
   ended=false; heard=0; pending=[]; shown=0;
-  DAY++; $('#daytag').textContent='Day '+DAY;
+  DAY++; $('#daytag').textContent='Day '+DAY; remember();
   $('#thread').innerHTML='';
   $('#endcall').disabled=false; $('#endcall').textContent='End the call & see the report';
   state('Connecting…','');
-  const info=await api(`/try/${PARENT_ID}/voice-call`);
+  const info=await api(`/try/${PARENT_ID}/voice-call?token=${encodeURIComponent(TOKEN)}`);
   CALL=info.call_id;
   stream=await navigator.mediaDevices.getUserMedia({
     audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
@@ -446,7 +458,7 @@ function startPolling(){ if(poll) clearInterval(poll); poll=setInterval(renderTu
 let shown=0;
 async function renderTurns(){
   try{
-    const c=await api(`/try/${CALL}/report`,null,'GET');
+    const c=await api(`/try/${CALL}/report?token=${encodeURIComponent(TOKEN)}`,null,'GET');
     (c.turns||[]).slice(shown).forEach(t=>bubble(t.who,t.text));
     shown=(c.turns||[]).length;
   }catch(e){}
@@ -467,7 +479,7 @@ async function finish(){
     // a fixed wait races them and renders an empty report. Poll until they land.
     let r=null;
     for(let i=0;i<20;i++){
-      r=await api(`/try/${CALL}/report`,null,'GET');
+      r=await api(`/try/${CALL}/report?token=${encodeURIComponent(TOKEN)}`,null,'GET');
       if(r.summary) break;
       state('Sahara is writing to '+CHILD+'…','');
       await new Promise(z=>setTimeout(z,2000));
@@ -531,8 +543,31 @@ $('#callagain').onclick=async()=>{
   finally{ b.disabled=false; b.textContent="🎙  Take tomorrow's call"; }
 };
 
+(function offerResume(){
+  const sv=recall();
+  if(!sv || !sv.PARENT_ID) return;
+  PARENT_ID=sv.PARENT_ID; TOKEN=sv.TOKEN; CHILD=sv.CHILD; PARENT=sv.PARENT; DAY=sv.DAY||0;
+  $('#resumecopy').innerHTML='You spoke with <b style="font-style:normal">'+esc(PARENT)+
+    '</b> for '+DAY+' morning'+(DAY===1?'':'s')+'. She still remembers.';
+  $('#resume').classList.remove('hidden');
+})();
+
+$('#resumebtn').onclick=async()=>{
+  const b=$('#resumebtn'); b.disabled=true; b.textContent='Connecting…';
+  try{
+    $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
+    $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
+    $('#call').scrollIntoView({behavior:'smooth'});
+    await startVoice();
+  }catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
+    $('#setup').classList.remove('hidden'); }
+  finally{ b.disabled=false; b.textContent='🎙  Continue with her'; }
+};
+
 $('#again').onclick=()=>{
-  CALL=null; shown=0; DAY=0; PARENT_ID=null;
+  CALL=null; shown=0; DAY=0; PARENT_ID=null; TOKEN="";
+  try{ localStorage.removeItem(SAVE) }catch(e){}
+  $('#resume').classList.add('hidden');
   $('#thread').innerHTML=''; $('#report').classList.add('hidden');
   $('#setup').classList.remove('hidden');
   window.scrollTo({top:0,behavior:'smooth'});

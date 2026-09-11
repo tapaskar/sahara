@@ -247,9 +247,11 @@ async def try_start(body: TryStartIn):
                    medications=json.dumps(body.medications), notes=note)
         s.add(p); s.commit(); s.refresh(p)
     memory.ensure_seeded(p, fam.child_name_native or fam.child_name)
+    _purge_old_demo_data()
     # The persona only. The conversation itself is a voice call: /try/<pid>/voice-call
     # opens the row, and the browser streams audio to it over the same bridge a phone uses.
-    return {"parent_id": p.id, "name": p.name, "language": p.language}
+    return {"parent_id": p.id, "name": p.name, "language": p.language,
+            "token": demo_token(p.id)}
 
 
 class TrySayIn(BaseModel):
@@ -271,6 +273,44 @@ async def try_say(call_id: int, body: TrySayIn):
 
 
 DEMO_CALLS_PER_DAY = int(os.environ.get("SAHARA_DEMO_MAX_CALLS", "60"))
+DEMO_KEEP_DAYS = int(os.environ.get("SAHARA_DEMO_KEEP_DAYS", "7"))
+
+
+def demo_token(pid: int) -> str:
+    """An unguessable handle for one visitor's persona. Two strangers sharing a link must
+    not be able to read each other's conversations by guessing a call id — the demo holds
+    real speech, and confidentiality is the product's whole premise. Derived, so it needs
+    no column and survives restarts."""
+    import hashlib
+    import hmac
+    secret = (config.OPERATOR_TOKEN or "sahara-demo").encode()
+    return hmac.new(secret, f"parent:{pid}".encode(), hashlib.sha256).hexdigest()[:20]
+
+
+def _check_demo_token(pid: int, token: str | None):
+    import secrets as _s
+    if not token or not _s.compare_digest(token, demo_token(pid)):
+        raise HTTPException(403, "this conversation belongs to someone else")
+
+
+def _purge_old_demo_data():
+    """A public demo accumulates strangers' conversations. Keep a week, then let them go —
+    the same minimisation instinct the retention policy applies to real calls."""
+    cutoff = utcnow() - timedelta(days=DEMO_KEEP_DAYS)
+    with session() as s:
+        old = s.exec(select(Parent).where(Parent.created_at < cutoff,
+                                          Parent.phone == "+demo")).all()
+        for p in old:
+            for c in s.exec(select(Call).where(Call.parent_id == p.id)).all():
+                s.delete(c)
+            for a in s.exec(select(Alert).where(Alert.parent_id == p.id)).all():
+                s.delete(a)
+            memory.forget_all(p.id)
+            s.delete(p)
+        if old:
+            s.commit()
+            logging.getLogger("sahara.web").info("demo: purged %d personas older than %d days",
+                                                 len(old), DEMO_KEEP_DAYS)
 
 
 def _demo_only():
@@ -291,9 +331,10 @@ def _demo_budget():
 
 
 @app.post("/api/try/{pid}/voice-call")
-def try_voice_call(pid: int):
-    """A call row for the demo's browser microphone — no operator token, but budgeted."""
-    _demo_only(); _demo_budget()
+def try_voice_call(pid: int, token: str = ""):
+    """A call row for the demo's browser microphone — no operator token, but budgeted
+    and scoped to the visitor who created this persona."""
+    _demo_only(); _check_demo_token(pid, token); _demo_budget()
     with session() as s:
         parent = s.get(Parent, pid)
         if parent is None or not parent.active:
@@ -306,7 +347,7 @@ def try_voice_call(pid: int):
 
 
 @app.get("/api/try/{call_id}/report")
-def try_report(call_id: int):
+def try_report(call_id: int, token: str = ""):
     """What the call produced: transcript, facts, summary, escalation, memory."""
     _demo_only()
     with session() as s:
@@ -314,6 +355,7 @@ def try_report(call_id: int):
         if c is None:
             raise HTTPException(404, "no such call")
         pid = c.parent_id
+    _check_demo_token(pid, token)
     return {**get_call_public(call_id), "memory": memory.graph(pid),
             "callback": memory.callback(pid)}
 

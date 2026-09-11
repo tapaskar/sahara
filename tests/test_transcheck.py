@@ -149,3 +149,29 @@ def test_indic_grammar_pins_both_speakers_genders():
     # an unrecorded gender must not be guessed
     unknown = Parent(name="X", language="hi-IN", gender="")
     assert "not recorded" in grammar_note(unknown)
+
+
+def test_demo_conversations_are_private_to_the_visitor(monkeypatch):
+    """A public link means strangers share one server. One visitor must not be able to
+    read another's conversation by guessing a call id — the demo holds real speech."""
+    from sahara import config
+    from sahara.web.app import demo_token
+
+    monkeypatch.setattr(config, "DEMO", True)
+    r = client.post("/api/try/start", json={"child_name": "Ravi", "parent_name": "Sushila",
+                                            "relation": "mother", "language": "hi-IN"})
+    assert r.status_code == 200
+    me = r.json()
+    assert me["token"] == demo_token(me["parent_id"])
+
+    call = client.post(f"/api/try/{me['parent_id']}/voice-call?token={me['token']}")
+    assert call.status_code == 200
+    cid = call.json()["call_id"]
+
+    # my own token works
+    assert client.get(f"/api/try/{cid}/report?token={me['token']}").status_code == 200
+    # a stranger guessing the call id does not
+    assert client.get(f"/api/try/{cid}/report").status_code == 403
+    assert client.get(f"/api/try/{cid}/report?token=deadbeef").status_code == 403
+    # nor can they start a call on someone else's persona
+    assert client.post(f"/api/try/{me['parent_id']}/voice-call?token=deadbeef").status_code == 403

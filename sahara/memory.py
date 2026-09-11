@@ -321,6 +321,18 @@ def prior_health(parent_id: int, exclude_call_id: int | None = None) -> str:
     return "\n".join(lines)
 
 
+def forget_all(parent_id: int) -> int:
+    """Erase one parent's entire graph — used by the demo purge and the DPDP erasure right."""
+    removed = 0
+    with session() as s:
+        for e in s.exec(select(MemoryEdge).where(MemoryEdge.parent_id == parent_id)).all():
+            s.delete(e); removed += 1
+        for n in s.exec(select(MemoryNode).where(MemoryNode.parent_id == parent_id)).all():
+            s.delete(n); removed += 1
+        s.commit()
+    return removed
+
+
 def graph(parent_id: int) -> dict:
     """The whole graph for one parent — for the operator desk and the eventual export."""
     with session() as s:
