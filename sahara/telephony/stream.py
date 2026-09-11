@@ -20,7 +20,10 @@ from ..engine.base import VoiceEngine
 from .base import Telephony
 
 log = logging.getLogger("sahara.stream")
-FRAME = 160   # 20 ms of 8 kHz mu-law
+FRAME = 160              # 20 ms of 8 kHz mu-law
+GOODBYE_MARK = "sahara-goodbye"
+GOODBYE_WAIT = 20.0      # cap: a long goodbye still ends, even if the echo never comes
+GOODBYE_BLIND = 2.5      # providers without marks: the old fixed wait
 
 
 async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
@@ -34,6 +37,7 @@ async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
     max_seconds = max_seconds or config.MAX_CALL_SECONDS
     stop = asyncio.Event()
     stream_ready = asyncio.Event()     # provider sent its start frame (carries the stream id)
+    goodbye_played = asyncio.Event()   # the provider says the farewell audio has been heard
     stats = {"frames_in": 0, "frames_out": 0, "ended_by": ""}
 
     async def inbound():
@@ -49,6 +53,8 @@ async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
                     await engine.send_audio(phone_to_model(mulaw, engine.in_hz))
                 elif ev == "stop":
                     stats["ended_by"] = "provider"; stop.set()
+                elif ev == "mark" and meta.get("name") == GOODBYE_MARK:
+                    goodbye_played.set()
         except WebSocketDisconnect:
             stats["ended_by"] = stats["ended_by"] or "disconnect"; stop.set()
         except Exception as e:
@@ -78,8 +84,22 @@ async def bridge(ws: WebSocket, provider: Telephony, engine: VoiceEngine,
                     if on_turn_end:
                         await on_turn_end()
                     if ending:
-                        # let the goodbye play out on the network before hanging up
-                        await asyncio.sleep(2.5)
+                        # Do not hang up until the goodbye has actually been heard. A mark
+                        # sits behind the queued audio and is echoed back when that audio
+                        # finishes, so the farewell is never clipped and we never wait
+                        # longer than we must.
+                        mark = provider.mark_frame(GOODBYE_MARK, info)
+                        if mark is not None:
+                            await ws.send_json(mark)
+                            try:
+                                await asyncio.wait_for(goodbye_played.wait(), GOODBYE_WAIT)
+                                stats["goodbye"] = "heard"
+                            except asyncio.TimeoutError:
+                                log.warning("no goodbye mark after %.0fs; hanging up", GOODBYE_WAIT)
+                                stats["goodbye"] = "timeout"
+                        else:
+                            await asyncio.sleep(GOODBYE_BLIND)   # provider has no marks
+                            stats["goodbye"] = "blind"
                         stats["ended_by"] = "agent"; stop.set(); return
                 elif ev.type == "end":
                     stats["ended_by"] = stats["ended_by"] or "engine"; stop.set(); return

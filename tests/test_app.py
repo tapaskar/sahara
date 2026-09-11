@@ -125,6 +125,8 @@ def test_websocket_bridge_with_null_engine():
             if msg.get("event") == "media":
                 got_audio += 1
                 assert msg["streamSid"] == "MZ1"
+            elif msg.get("event") == "mark":          # Twilio echoes it once the audio played
+                ws.send_json(msg)
     assert got_audio > 20                                    # the 0.6 s greeting tone = 30 frames
     d = client.get(f"/api/calls/{c['id']}").json()
     assert d["status"] == "completed" and d["obs"] and d["obs"][0]["detail"] == "Offline engine heard audio"
@@ -164,6 +166,8 @@ def test_mic_call_row_runs_over_the_same_bridge():
                 break
             if msg.get("event") == "media":
                 got_audio += 1
+            elif msg.get("event") == "mark":
+                ws.send_json(msg)
     assert got_audio > 20
     d = client.get(f"/api/calls/{call_id}").json()
     assert d["status"] == "completed" and d["turns"]
@@ -357,12 +361,71 @@ def test_the_twiml_matches_twilios_documented_stream_protocol(monkeypatch):
                           "media": {"track": "inbound", "chunk": "1", "timestamp": "5",
                                     "payload": "fw=="}})[:2] == ("media", b"\x7f")
     assert t.parse_frame({"event": "stop", "streamSid": "MZabc", "stop": {}})[0] == "stop"
-    # connected / dtmf / mark are documented events we neither need nor may crash on
+    # connected / dtmf are documented events we neither need nor may crash on
     for other in ({"event": "connected", "protocol": "Call", "version": "1.0.0"},
-                  {"event": "dtmf", "streamSid": "MZabc", "dtmf": {"digit": "1"}},
-                  {"event": "mark", "streamSid": "MZabc", "mark": {"name": "x"}}):
+                  {"event": "dtmf", "streamSid": "MZabc", "dtmf": {"digit": "1"}}):
         assert t.parse_frame(other)[0] == "other"
+
+    # marks we do use: they tell us the goodbye finished playing
+    assert t.parse_frame({"event": "mark", "streamSid": "MZabc",
+                          "mark": {"name": "sahara-goodbye"}}) == \
+        ("mark", None, {"name": "sahara-goodbye"})
+    assert t.mark_frame("sahara-goodbye", meta) == {
+        "event": "mark", "streamSid": "MZabc", "mark": {"name": "sahara-goodbye"}}
 
     assert t.audio_frame(b"\x7f", meta) == {"event": "media", "streamSid": "MZabc",
                                             "media": {"payload": "fw=="}}
     assert t.clear_frame(meta) == {"event": "clear", "streamSid": "MZabc"}
+
+
+async def test_the_goodbye_waits_to_be_heard_not_a_guessed_duration():
+    """A fixed sleep either clips the farewell or wastes the line. A mark rides behind the
+    queued audio and comes back when it has played, so we hang up exactly then — and a
+    provider without marks still falls back to the old blind wait."""
+    import asyncio
+
+    from sahara.telephony import stream as stream_mod
+    from sahara.telephony.plivo import Plivo
+    from sahara.telephony.twilio import Twilio
+
+    info = {"stream_sid": "MZ1"}
+    mark = Twilio().mark_frame(stream_mod.GOODBYE_MARK, info)
+    assert mark["mark"]["name"] == stream_mod.GOODBYE_MARK
+
+    # Plivo's Audio Streams have no documented equivalent: capability, not crash
+    assert Plivo().mark_frame(stream_mod.GOODBYE_MARK, {}) is None
+
+    # the echo is what releases the hang-up
+    played = asyncio.Event()
+    ev, _, meta = Twilio().parse_frame(mark)            # Twilio echoes the frame verbatim
+    assert ev == "mark"
+    if meta.get("name") == stream_mod.GOODBYE_MARK:
+        played.set()
+    await asyncio.wait_for(played.wait(), 1)
+
+    # a mark for something else must not end the call
+    other = Twilio().parse_frame({"event": "mark", "streamSid": "MZ1",
+                                  "mark": {"name": "something-else"}})
+    assert other[2]["name"] != stream_mod.GOODBYE_MARK
+
+
+async def test_a_call_records_how_the_goodbye_ended():
+    """stats carry it so a clipped-goodbye complaint is diagnosable from the log rather
+    than from guesswork."""
+    f, p = _seed()
+    c = client.post(f"/api/parents/{p['id']}/call-now").json()
+    silence = base64.b64encode(bytes([0xFF] * 160)).decode()
+    with client.websocket_connect(f"/ws/twilio/{c['id']}") as ws:
+        ws.send_json({"event": "start", "streamSid": "MZ1",
+                      "start": {"customParameters": {"call_id": c["id"]}}})
+        for _ in range(330):
+            ws.send_json({"event": "media", "media": {"payload": silence}})
+        while True:
+            try:
+                msg = ws.receive_json()
+            except Exception:
+                break
+            if msg.get("event") == "mark":
+                ws.send_json(msg)                       # behave like Twilio
+    d = client.get(f"/api/calls/{c['id']}").json()
+    assert d["status"] == "completed"

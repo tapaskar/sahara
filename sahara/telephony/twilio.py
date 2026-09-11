@@ -50,6 +50,8 @@ class Twilio(Telephony):
             return "media", base64.b64decode(msg["media"]["payload"]), {}
         if ev == "stop":
             return "stop", None, {}
+        if ev == "mark":
+            return "mark", None, {"name": (msg.get("mark") or {}).get("name", "")}
         return "other", None, {}
 
     def audio_frame(self, mulaw: bytes, info: dict) -> dict:
@@ -58,6 +60,12 @@ class Twilio(Telephony):
 
     def clear_frame(self, info: dict) -> dict:
         return {"event": "clear", "streamSid": info.get("stream_sid")}
+
+    def mark_frame(self, name: str, info: dict) -> dict | None:
+        """Twilio echoes a mark back when the audio queued ahead of it has finished
+        playing — which is how we know the goodbye was actually heard, rather than
+        guessing with a sleep and clipping the last words."""
+        return {"event": "mark", "streamSid": info.get("stream_sid"), "mark": {"name": name}}
 
     def status_from_callback(self, form: dict) -> str | None:
         st = form.get("CallStatus")

@@ -61,6 +61,12 @@ class Telephony(ABC):
     @abstractmethod
     def clear_frame(self, info: dict) -> dict: ...
 
+    def mark_frame(self, name: str, info: dict) -> dict | None:
+        """A frame the provider echoes back once the audio queued before it has finished
+        playing. Returning None means this provider has no such mechanism and the caller
+        must fall back to waiting a fixed time."""
+        return None
+
     def status_from_callback(self, form: dict) -> str | None:
         """Map a status webhook to Call.status, or None to ignore."""
         return None
