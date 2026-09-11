@@ -223,6 +223,7 @@ class TryStartIn(BaseModel):
     parent_name: str                      # "...health updates of ___"
     parent_name_native: str = ""
     relation: str = "parent"              # "...who is your ___"
+    gender: str = ""                      # female | male — Indic verbs conjugate on it
     language: str = "hi-IN"
     notes: str = ""
     medications: list[dict] = []
@@ -241,6 +242,7 @@ async def try_start(body: TryStartIn):
         note = (f"{body.parent_name.strip()} is the {rel} of {body.child_name.strip()}. " + note).strip()
         p = Parent(family_id=fam.id, name=body.parent_name.strip() or "your parent",
                    name_native=body.parent_name_native.strip(),
+                   gender=body.gender.strip().lower(),
                    phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
                    medications=json.dumps(body.medications), notes=note)
         s.add(p); s.commit(); s.refresh(p)

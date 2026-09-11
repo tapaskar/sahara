@@ -121,3 +121,31 @@ async def test_the_transcript_is_readable_while_the_call_is_still_running():
     await live.on_transcript("parent", "ठीक हूँ बेटा", True)
     mid2 = client.get(f"/api/calls/{call_id}").json()["turns"]
     assert [t["who"] for t in mid2] == ["sahara", "parent"], mid2
+
+
+def test_indic_grammar_pins_both_speakers_genders():
+    """Hindi conjugates the verb on the speaker's gender and inflects questions on the
+    listener's. Unstated, the model drifts masculine and addresses an elderly woman as a
+    man — which reads as carelessness, not a glitch."""
+    from sahara.models import Family, Parent
+    from sahara.persona import checkin_prompt, grammar_note
+
+    she = Parent(name="Sushila", language="hi-IN", gender="female")
+    he = Parent(name="Gopal", language="hi-IN", gender="male")
+    tamil = Parent(name="Lakshmi", language="ta-IN", gender="female")
+
+    # Sahara is always a woman, in every language
+    for p in (she, he, tamil):
+        assert "you are a woman" in grammar_note(p)
+
+    assert "कैसी हैं" in grammar_note(she) and "कैसे हैं" not in grammar_note(she)
+    assert "कैसे हैं" in grammar_note(he)
+    assert "समझ गई" in grammar_note(she)          # feminine self-reference is spelled out
+
+    # and it reaches the actual prompt
+    fam = Family(child_name="Ravi", child_phone="+91")
+    assert "कैसी हैं" in checkin_prompt(she, fam)
+
+    # an unrecorded gender must not be guessed
+    unknown = Parent(name="X", language="hi-IN", gender="")
+    assert "not recorded" in grammar_note(unknown)

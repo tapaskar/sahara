@@ -36,6 +36,32 @@ def language_name(code: str) -> str:
     return LANGUAGES.get(code, code)
 
 
+# Hindi, Marathi, Gujarati and Punjabi conjugate the verb on the speaker's gender and
+# inflect adjectives on the listener's. Left unstated, the model drifts to masculine forms
+# and an elderly woman is addressed as a man — which reads as carelessness, not a glitch.
+GENDERED_LANGUAGES = ("hi-IN", "mr-IN", "gu-IN", "pa-IN")
+
+
+def grammar_note(parent: Parent) -> str:
+    if parent.language not in GENDERED_LANGUAGES:
+        return ("GRAMMAR: you are a woman. Keep every honorific and verb form consistent with that, "
+                "and address them with the respectful form used for an elder.")
+    g = (parent.gender or "").lower()
+    if g == "male":
+        addressed = ('They are male: address them with masculine forms — "आप कैसे हैं?", '
+                     '"आपने खाना खाया?", "आप ठीक हैं ना?"')
+    elif g == "female":
+        addressed = ('They are female: address them with feminine forms — "आप कैसी हैं?", '
+                     '"आपने खाना खाया?", "आप ठीक हैं ना?"')
+    else:
+        addressed = ("Their gender is not recorded: phrase questions so they do not require it "
+                     '("आप कैसा महसूस कर रहे हैं?" is safer than guessing), and follow their own '
+                     "forms once they speak.")
+    return ("GRAMMAR — THIS MATTERS: **you are a woman**, so every verb you use about yourself takes "
+            'the feminine form: "मैं बता रही हूँ", "मैं समझ गई", "मैं कल फिर बात करूँगी" — never '
+            '"रहा हूँ", "समझ गया", "करूँगा". ' + addressed)
+
+
 def spoken_name(person, native_attr: str, fallback_attr: str) -> str:
     """The name as the parent hears it. The notice is spoken verbatim, so a Latin name
     inside an otherwise Devanagari sentence reads as a jarring code-switch."""
@@ -124,6 +150,8 @@ their child {family.child_name}, who lives far away. You are not a doctor and no
 NAMES: say every name in the script and pronunciation of {lang} — never spell out a Latin name.
 {parent.name} is spoken as "{spoken_name(parent, 'name_native', 'name')}" and their child as
 "{spoken_name(family, 'child_name_native', 'child_name')}".
+
+{grammar_note(parent)}
 
 LANGUAGE: speak only {lang} for the whole call, in the simple, respectful register used with an elder
 (in Hindi use आप, never तुम). If they answer in another language, switch to it and stay there. Short

@@ -25,6 +25,7 @@ class Parent(SQLModel, table=True):
     family_id: int = Field(foreign_key="family.id")
     name: str
     name_native: str = ""                 # the parent's name in their own script
+    gender: str = ""                      # female | male | "" — Indic verbs conjugate on it
     phone: str                            # E.164
     language: str = "hi-IN"               # BCP-47; see persona.LANGUAGES
     call_time: str = "08:30"              # local time, HH:MM

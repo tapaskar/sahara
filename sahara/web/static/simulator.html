@@ -158,7 +158,11 @@
         and you want gentle daily updates on
         <input class="inl" id="parent" placeholder="their name" value="Sushila Devi">,
         who is your
-        <input class="inl" id="relation" placeholder="mother" value="mother">.
+        <input class="inl" id="relation" placeholder="mother" value="mother">
+        <select class="inl" id="gender" style="min-width:auto">
+          <option value="female">— and she is a woman</option>
+          <option value="male">— and he is a man</option>
+        </select>.
       </div>
 
       <div class="row" style="margin-top:26px">
@@ -360,6 +364,7 @@ $('#begin').onclick=async()=>{
       child_name:CHILD, parent_name:PARENT, relation:$('#relation').value.trim()||'parent',
       child_name_native:$('#child-native').value.trim(),
       parent_name_native:$('#parent-native').value.trim(),
+      gender:$('#gender').value,
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
@@ -443,9 +448,16 @@ async function finish(){
   if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
   if(ctx){ctx.close().catch(()=>{});ctx=null}
   $('#endcall').disabled=true; $('#endcall').textContent='Preparing the report…';
-  await new Promise(r=>setTimeout(r,3500));      // summary + escalation run server-side
   try{
-    const r=await api(`/try/${CALL}/report`,null,'GET');
+    // The summary and the escalation are two model calls made after the line drops;
+    // a fixed wait races them and renders an empty report. Poll until they land.
+    let r=null;
+    for(let i=0;i<20;i++){
+      r=await api(`/try/${CALL}/report`,null,'GET');
+      if(r.summary) break;
+      state('Sahara is writing to '+CHILD+'…','');
+      await new Promise(z=>setTimeout(z,2000));
+    }
     await renderTurns();
     renderReport(r);
     $('#call').classList.add('hidden'); $('#report').classList.remove('hidden');
