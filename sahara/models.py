@@ -27,6 +27,7 @@ class Parent(SQLModel, table=True):
     name_native: str = ""                 # the parent's name in their own script
     gender: str = ""                      # female | male | "" — Indic verbs conjugate on it
     demo_visitor: str = Field(default="", index=True)   # /try only: whose persona this is
+    session_code: str = Field(default="", index=True)   # /try only: the readable handle a person keeps
     phone: str                            # E.164
     language: str = "hi-IN"               # BCP-47; see persona.LANGUAGES
     call_time: str = "08:30"              # local time, HH:MM

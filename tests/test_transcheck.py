@@ -168,9 +168,9 @@ def test_a_visitor_owns_their_conversations_and_no_one_elses(monkeypatch):
 
     # each of us sees only our own
     mine_list = client.get(f"/api/try/mine?visitor={me}").json()["personas"]
-    assert [p["name"] for p in mine_list] == ["Sushila"]
+    assert [p["parent_name"] for p in mine_list] == ["Sushila"]
     yours_list = client.get(f"/api/try/mine?visitor={you}").json()["personas"]
-    assert [p["name"] for p in yours_list] == ["Kamala"]
+    assert [p["parent_name"] for p in yours_list] == ["Kamala"]
     assert client.get("/api/try/mine").json()["personas"] == []      # a stranger sees nothing
 
     # I can call my persona; you cannot
@@ -184,7 +184,7 @@ def test_a_visitor_owns_their_conversations_and_no_one_elses(monkeypatch):
     client.post("/api/try/start", json={"visitor": me, "child_name": "Ravi",
                                         "parent_name": "Gopal", "relation": "father",
                                         "language": "hi-IN", "gender": "male"})
-    assert {p["name"] for p in client.get(f"/api/try/mine?visitor={me}").json()["personas"]} \
+    assert {p["parent_name"] for p in client.get(f"/api/try/mine?visitor={me}").json()["personas"]} \
         == {"Sushila", "Gopal"}
 
 

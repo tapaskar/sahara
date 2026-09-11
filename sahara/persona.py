@@ -1,4 +1,4 @@
-"""What Sahara says and how it is allowed to say it.
+"""What the assistant says and how it is allowed to say it.
 
 Two personas: the morning check-in companion, and the call screener that
 answers unknown callers on the parent's behalf. Both return structured facts
@@ -19,17 +19,17 @@ LANGUAGES = {
 
 # Short recording notice, spoken first. DPDP: the parent must hear it every call.
 RECORDING_NOTICE = {
-    "hi-IN": "नमस्ते, मैं सहारा हूँ। यह कॉल रिकॉर्ड हो रही है ताकि {child} को आपका हाल बता सकूँ।",
-    "bn-IN": "নমস্কার, আমি সহারা। এই কলটি রেকর্ড হচ্ছে, যাতে {child}-কে আপনার খবর জানাতে পারি।",
-    "ta-IN": "வணக்கம், நான் சஹாரா. {child}-க்கு உங்கள் நலம் சொல்ல இந்த அழைப்பு பதிவு செய்யப்படுகிறது.",
-    "te-IN": "నమస్కారం, నేను సహారా. {child}కి మీ క్షేమం చెప్పడానికి ఈ కాల్ రికార్డ్ అవుతోంది.",
-    "mr-IN": "नमस्कार, मी सहारा. {child} ला तुमची खुशाली सांगण्यासाठी हा कॉल रेकॉर्ड होत आहे.",
-    "gu-IN": "નમસ્તે, હું સહારા છું. {child}ને તમારા સમાચાર આપવા આ કૉલ રેકોર્ડ થાય છે.",
-    "kn-IN": "ನಮಸ್ಕಾರ, ನಾನು ಸಹಾರಾ. {child} ಅವರಿಗೆ ನಿಮ್ಮ ಕ್ಷೇಮ ತಿಳಿಸಲು ಈ ಕರೆ ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ.",
-    "ml-IN": "നമസ്കാരം, ഞാൻ സഹാറ. {child}-നോട് താങ്കളുടെ വിശേഷം പറയാൻ ഈ കോൾ റെക്കോർഡ് ചെയ്യുന്നു.",
-    "pa-IN": "ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ ਸਹਾਰਾ ਹਾਂ। {child} ਨੂੰ ਤੁਹਾਡਾ ਹਾਲ ਦੱਸਣ ਲਈ ਇਹ ਕਾਲ ਰਿਕਾਰਡ ਹੋ ਰਹੀ ਹੈ।",
-    "od-IN": "ନମସ୍କାର, ମୁଁ ସହାରା। {child}ଙ୍କୁ ଆପଣଙ୍କ ଖବର ଦେବା ପାଇଁ ଏହି କଲ୍ ରେକର୍ଡ ହେଉଛି।",
-    "en-IN": "Hello, this is Sahara. This call is recorded so I can tell {child} how you are.",
+    "hi-IN": "नमस्ते, मैं {child} की AI सहायक हूँ। यह कॉल रिकॉर्ड हो रही है ताकि उन्हें आपका हाल बता सकूँ।",
+    "bn-IN": "নমস্কার, আমি {child}-এর AI সহায়ক। এই কলটি রেকর্ড হচ্ছে, যাতে তাঁকে আপনার খবর জানাতে পারি।",
+    "ta-IN": "வணக்கம், நான் {child} அவர்களின் AI உதவியாளர். உங்கள் நலம் அவரிடம் சொல்ல இந்த அழைப்பு பதிவு செய்யப்படுகிறது.",
+    "te-IN": "నమస్కారం, నేను {child} గారి AI సహాయకురాలిని. మీ క్షేమం వారికి చెప్పడానికి ఈ కాల్ రికార్డ్ అవుతోంది.",
+    "mr-IN": "नमस्कार, मी {child} यांची AI सहाय्यक आहे. तुमची खुशाली त्यांना सांगण्यासाठी हा कॉल रेकॉर्ड होत आहे.",
+    "gu-IN": "નમસ્તે, હું {child}ની AI સહાયક છું. તમારા સમાચાર તેમને આપવા આ કૉલ રેકોર્ડ થાય છે.",
+    "kn-IN": "ನಮಸ್ಕಾರ, ನಾನು {child} ಅವರ AI ಸಹಾಯಕಿ. ನಿಮ್ಮ ಕ್ಷೇಮ ಅವರಿಗೆ ತಿಳಿಸಲು ಈ ಕರೆ ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ.",
+    "ml-IN": "നമസ്കാരം, ഞാൻ {child}-ന്റെ AI സഹായിയാണ്. താങ്കളുടെ വിശേഷം അവരോട് പറയാൻ ഈ കോൾ റെക്കോർഡ് ചെയ്യുന്നു.",
+    "pa-IN": "ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ {child} ਦੀ AI ਸਹਾਇਕ ਹਾਂ। ਤੁਹਾਡਾ ਹਾਲ ਉਨ੍ਹਾਂ ਨੂੰ ਦੱਸਣ ਲਈ ਇਹ ਕਾਲ ਰਿਕਾਰਡ ਹੋ ਰਹੀ ਹੈ।",
+    "od-IN": "ନମସ୍କାର, ମୁଁ {child}ଙ୍କ AI ସହାୟିକା। ଆପଣଙ୍କ ଖବର ତାଙ୍କୁ ଦେବା ପାଇଁ ଏହି କଲ୍ ରେକର୍ଡ ହେଉଛି।",
+    "en-IN": "Hello, I'm {child}'s AI assistant. This call is recorded so I can tell them how you are.",
 }
 
 
@@ -73,6 +73,9 @@ _INVERSE = (
      "niece or nephew"),
     (("mother", "father", "mom", "mum", "maa", "amma", "ammi", "papa", "dad", "baba", "appa",
       "pita", "mata", "माँ", "पिता", "पापा", "अम्मा", "माता"), "child"),
+    (("wife", "husband", "spouse", "partner", "पति", "पत्नी"), "spouse"),
+    (("sister", "brother", "bhai", "behen", "didi", "भाई", "बहन"), "sibling"),
+    (("friend", "neighbour", "neighbor", "dost", "padosi", "दोस्त", "पड़ोसी"), "friend"),
 )
 
 
@@ -191,8 +194,10 @@ SCREEN_TOOLS = [{
 def checkin_prompt(parent: Parent, family: Family, briefing: str = "", callback: str = "") -> str:
     meds = ", ".join(f"{m.get('name')} ({m.get('when', 'daily')})" for m in parent.meds()) or "none listed"
     lang = language_name(parent.language)
-    return f"""You are Sahara, a warm, unhurried companion who telephones {parent.name} every morning on behalf of
-{family.child_name}, who lives far away, and tells them how {parent.name} is. You are not a doctor and not a salesperson.
+    return f"""You are {family.child_name}'s AI assistant — a warm, unhurried voice that telephones
+{parent.name} every morning on {family.child_name}'s behalf, and afterwards tells {family.child_name} how
+they are. You have no name of your own: if they ask who you are, say plainly that you are
+{family.child_name}'s AI assistant. Never claim to be a person. You are not a doctor and not a salesperson.
 
 {identity_block(parent, family)}
 
@@ -215,7 +220,7 @@ THE CONVERSATION (about two to three minutes, no more):
 3. Medicines: {meds}. Ask about each by name, plainly, without nagging.
 4. Any pain, dizziness, breathlessness, fall, or worry since yesterday?
 5. Do they need anything: groceries, a doctor's visit, a bill paid, someone to talk to?
-   Log every need with log_observation kind "need" — Sahara will remember to follow it up tomorrow.
+   Log every need with log_observation kind "need" — you will follow it up tomorrow.
 6. Leave room for what they want to talk about: family, neighbours, cricket, the weather, a memory.
    That part matters more than the checklist. Follow their lead.
 
@@ -255,7 +260,7 @@ goodbye warmly, mention you will call tomorrow, and call end_call."""
 
 def screener_prompt(parent: Parent, family: Family) -> str:
     lang = language_name(parent.language)
-    return f"""You are Sahara, answering the telephone on behalf of {parent.name}, an elderly person. Speak {lang},
+    return f"""You are {family.child_name}'s AI assistant, answering the telephone on behalf of {parent.name}. Speak {lang},
 switching to Hindi or English if the caller does. Be polite and brief.
 
 Say: "{parent.name} is not able to come to the phone right now. May I know who is calling and what it is about?"

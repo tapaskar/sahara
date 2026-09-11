@@ -256,7 +256,7 @@ async def try_start(body: TryStartIn):
                    gender=(body.gender.strip().lower()
                            or guardrails.gender_from_relation(body.relation)),
                    conditions=body.conditions.strip(),
-                   demo_visitor=body.visitor.strip(),
+                   demo_visitor=body.visitor.strip(), session_code=new_session_code(),
                    phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
                    medications=json.dumps(body.medications), notes=note)
         s.add(p); s.commit(); s.refresh(p)
@@ -265,7 +265,40 @@ async def try_start(body: TryStartIn):
     # The persona only. The conversation itself is a voice call: /try/<pid>/voice-call
     # opens the row, and the browser streams audio to it over the same bridge a phone uses.
     return {"parent_id": p.id, "name": p.name, "language": p.language,
-            "token": demo_token(p.id)}
+            "session": p.session_code, "token": demo_token(p.id)}
+
+
+def _session_row(p: Parent, fam: Family | None, calls_: list) -> dict:
+    spoken = [c for c in calls_ if (c.turns() or [])]
+    child = fam.child_name if fam else ""
+    rel = p.relation or "family"
+    return {
+        "session": p.session_code, "parent_id": p.id,
+        "headline": f"{child} → {p.name}",
+        "summary": f"{child} set this up for {p.name}, their {rel}",
+        "child_name": child, "child_name_native": fam.child_name_native if fam else "",
+        "parent_name": p.name, "parent_name_native": p.name_native,
+        "relation": p.relation, "gender": p.gender, "language": p.language,
+        "conditions": p.conditions, "notes": p.notes,
+        "medications": p.meds(), "days": len(spoken),
+        "last": max((c.created_at for c in calls_), default=p.created_at).isoformat(timespec="minutes"),
+    }
+
+
+@app.get("/api/try/session/{code}")
+def try_session(code: str):
+    """Everything needed to repopulate the form and carry on — the code is the key."""
+    _demo_only()
+    p = _find_session(code)
+    if p is None:
+        raise HTTPException(404, "no session with that code")
+    with session() as s:
+        fam = s.get(Family, p.family_id)
+        cs = s.exec(select(Call).where(Call.parent_id == p.id)).all()
+    row = _session_row(p, fam, cs)
+    row["remembers"] = [n["detail"] or n["label"] for n in memory.graph(p.id)["nodes"]
+                        if n.get("source_call_id")][:6]
+    return row
 
 
 @app.get("/api/try/mine")
@@ -278,13 +311,9 @@ def try_mine(visitor: str = ""):
     out = []
     with session() as s:
         parents = s.exec(select(Parent).where(Parent.demo_visitor == visitor)).all()
-        for p in sorted(parents, key=lambda x: x.id, reverse=True)[:8]:
+        for p in sorted(parents, key=lambda x: x.id, reverse=True)[:10]:
             cs = s.exec(select(Call).where(Call.parent_id == p.id)).all()
-            spoken = [c for c in cs if (c.turns() or [])]
-            fam = s.get(Family, p.family_id)
-            out.append({"parent_id": p.id, "name": p.name, "language": p.language,
-                        "child": fam.child_name if fam else "", "days": len(spoken),
-                        "last": max((c.created_at for c in cs), default=p.created_at).isoformat()})
+            out.append(_session_row(p, s.get(Family, p.family_id), cs))
     for row in out:
         row["remembers"] = len([n for n in memory.graph(row["parent_id"])["nodes"]
                                 if n.get("source_call_id")])
@@ -313,6 +342,34 @@ DEMO_CALLS_PER_DAY = int(os.environ.get("SAHARA_DEMO_MAX_CALLS", "60"))
 DEMO_KEEP_DAYS = int(os.environ.get("SAHARA_DEMO_KEEP_DAYS", "7"))
 
 
+# No 0/O/1/I: this gets read aloud, written down and typed back in.
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+# Random letters occasionally spell something a person would not want to read out to
+# their mother. Cheap to avoid, embarrassing not to.
+_CODE_AVOID = ("SEX", "ASS", "FUK", "FUC", "CUN", "TIT", "PIS", "DIE", "KKK", "NAZ", "RAP")
+
+
+def new_session_code() -> str:
+    """A short handle a person can keep. Long enough that it is not guessable, short enough
+    that it can be copied off a screen or read down a phone."""
+    import secrets as _s
+    for _ in range(40):
+        raw = "".join(_s.choice(_CODE_ALPHABET) for _ in range(8))
+        if not any(bad in raw for bad in _CODE_AVOID):
+            return f"{raw[:4]}-{raw[4:]}"
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+def _find_session(code: str) -> Parent | None:
+    if not code:
+        return None
+    with session() as s:
+        return s.exec(select(Parent).where(
+            Parent.session_code == code.strip().upper())).first()
+
+
 def demo_token(pid: int) -> str:
     """Kept for the earlier per-persona links; ownership is now by visitor (below)."""
     import hashlib
@@ -326,14 +383,18 @@ def _owned_parent(pid: int, visitor: str) -> Parent:
     a person creates belongs to it, and nothing else can be read or continued. Two
     strangers on one shared link never see each other's conversations."""
     import secrets as _s
-    if not visitor or len(visitor) < 16:
+    # either a browser's visitor id or a session code — the code is short by design,
+    # because a person has to be able to read it off a screen and type it back
+    if not visitor or len(visitor.strip()) < 9:
         raise HTTPException(403, "who are you? start a conversation first")
     with session() as s:
         p = s.get(Parent, pid)
     if p is None:
         raise HTTPException(404, "no such persona")
-    # legacy per-persona token still opens the persona that predates visitor ids
+    # the session code is itself the key, so a person can return from another device;
+    # otherwise it must be the browser that created it
     if not (p.demo_visitor and _s.compare_digest(p.demo_visitor, visitor)) \
+            and not (p.session_code and _s.compare_digest(visitor.strip().upper(), p.session_code)) \
             and not _s.compare_digest(visitor, demo_token(pid)):
         raise HTTPException(403, "this conversation belongs to someone else")
     return p

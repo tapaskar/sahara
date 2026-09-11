@@ -143,6 +143,19 @@
   .personas .who{flex:1;margin:0;font-family:system-ui,sans-serif;font-size:14.5px;color:var(--ink)}
   .personas .who small{display:block;color:var(--dim);font-size:12.5px}
   .personas button{padding:9px 16px;font-size:14px}
+  .personas code{display:inline-block;font:600 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;
+    letter-spacing:.06em;background:var(--accent-soft);color:var(--accent);padding:3px 8px;
+    border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .personas code:hover{border-color:var(--gold)}
+  .codebox{margin-top:16px;padding-top:16px;border-top:1px solid var(--line2)}
+  .sessionbar{display:flex;align-items:center;gap:10px;margin:-10px 0 18px;flex-wrap:wrap}
+  .sessionbar span{font-family:system-ui,sans-serif;font-size:12px;color:var(--dim);
+    letter-spacing:.1em;text-transform:uppercase;font-weight:600}
+  .sessionbar code{font:600 14px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;
+    background:var(--accent-soft);color:var(--accent);padding:4px 10px;border-radius:7px}
+  .sessionbar .copy{background:transparent;border:1px solid var(--line);color:var(--dim);
+    padding:4px 10px;font-size:12px;border-radius:7px;margin:0}
+  .sessionbar .tip{text-transform:none;letter-spacing:0;font-style:italic;font-weight:400}
   .nextday{text-align:center;margin-top:30px;background:var(--panel);border:1px solid var(--line);
     border-radius:18px;padding:26px 24px;box-shadow:0 18px 40px -30px rgba(90,60,30,.4)}
   .nextday p{margin:0 0 18px;color:var(--dim);font-style:italic;font-size:17px}
@@ -158,8 +171,8 @@
 
   <header class="hero">
     <div class="mark">Sahara</div>
-    <h1>Every morning, a warm voice checks on the ones you <em>can't be with</em>.</h1>
-    <p>Talk to her yourself, out loud. See what she'd remember, and what she'd tell you.</p>
+    <h1>Every morning, your AI assistant checks on someone you <em>can't be with</em>.</h1>
+    <p>Talk to them yourself, out loud. See what she'd remember, and what she'd report back.</p>
     <div class="rule"></div>
   </header>
 
@@ -172,21 +185,21 @@
         and you want gentle daily updates on
         <input class="inl" id="parent" placeholder="their name" value="Sushila Devi">,
         who is your
-        <input class="inl" id="relation" placeholder="mother" value="mother">
+        <input class="inl" id="relation" placeholder="mother, friend, neighbour…">
         <select class="inl" id="gender" style="min-width:auto">
           <option value="">— …</option>
-          <option value="female">— and she is a woman</option>
-          <option value="male">— and he is a man</option>
+          <option value="female">— a woman</option>
+          <option value="male">— a man</option>
         </select>.
       </div>
 
       <div class="row" style="margin-top:26px">
         <div class="field">
-          <label>Her name in her own script <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+          <label>Their name in their own script <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
           <input id="parent-native" placeholder="सुशीला देवी">
         </div>
         <div class="field">
-          <label>Your name, as she says it <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+          <label>Your name, as they say it <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
           <input id="child-native" placeholder="रवि">
         </div>
       </div>
@@ -194,7 +207,7 @@
 
       <div class="row">
         <div class="field">
-          <label>Her language</label>
+          <label>The language they speak</label>
           <select id="language">
             <option value="hi-IN">Hindi</option>
             <option value="bn-IN">Bengali</option>
@@ -227,13 +240,21 @@
         <textarea id="notes" placeholder="Lives alone in Cuttack, loves cricket, misses her grandchildren"></textarea>
       </div>
       <div class="resume hidden" id="resume">
-        <div class="eyebrow" style="margin-bottom:10px">Your conversations</div>
+        <div class="eyebrow" style="margin-bottom:10px">Your sessions</div>
         <ul class="personas" id="personas"></ul>
-        <div class="hint" style="margin-top:12px">Only you can open these — they are tied to
-          this browser, not to any account. Or set up someone new below.</div>
+        <div class="codebox">
+          <label>Returning on another device? Enter your session code</label>
+          <div style="display:flex;gap:10px">
+            <input id="codein" placeholder="ABCD-1234" style="text-transform:uppercase">
+            <button class="ghost" id="codego" style="flex:none">Open</button>
+          </div>
+          <div class="err hidden" id="code-err"></div>
+        </div>
+        <div class="hint" style="margin-top:12px">Each session keeps its own memory — nothing
+          crosses between them. Start a new one below for a different person.</div>
       </div>
       <button class="go" id="begin">🎙 &nbsp;Begin the morning call</button>
-      <div class="hint">You'll play her part, in your own voice. Your browser will ask for the microphone. Sahara speaks first.</div>
+      <div class="hint">You'll play their part, in your own voice. Your browser will ask for the microphone. Sahara speaks first.</div>
       <div class="err hidden" id="setup-err"></div>
     </div>
   </section>
@@ -244,6 +265,11 @@
       <div class="call-head"><div class="eyebrow" style="margin:0">The morning call</div>
         <span class="daytag" id="daytag">Day 1</span></div>
       <div class="who" id="callwho"></div>
+      <div class="sessionbar hidden" id="sessionbar">
+        <span>Session</span><code id="sessioncode"></code>
+        <button class="copy" id="copycode" title="Copy">copy</button>
+        <span class="tip">keep this to come back to her</span>
+      </div>
       <div class="live">
         <div class="orb" id="orb"><span></span></div>
         <div class="livestate" id="livestate">Connecting…</div>
@@ -296,7 +322,7 @@
 <script>
 const $=s=>document.querySelector(s);
 const PHONE_HZ=8000, FRAME=160;
-let CALL=null, PARENT_ID=null, CHILD="", PARENT="", DAY=0, TOKEN="";
+let CALL=null, PARENT_ID=null, CHILD="", PARENT="", DAY=0, TOKEN="", SESSION="";
 const SAVE='sahara_demo_persona', ME='sahara_demo_visitor';
 // An opaque id this browser keeps. It is the demo's whole notion of "you": everything you
 // create belongs to it, nothing else can read it, and it is what lets her still remember
@@ -309,7 +335,7 @@ function visitorId(){
 }
 const VISITOR=visitorId();
 function remember(){ try{ localStorage.setItem(SAVE, JSON.stringify(
-  {PARENT_ID,TOKEN,CHILD,PARENT,DAY})) }catch(e){} }
+  {PARENT_ID,TOKEN,CHILD,PARENT,DAY,SESSION})) }catch(e){} }
 function recall(){ try{ return JSON.parse(localStorage.getItem(SAVE)||'null') }catch(e){ return null } }
 // the persona persists across calls — that is the whole point: tomorrow she remembers
 let ctx,ws,stream,capNode,plyNode,poll,pending=[],heard=0,lastAudio=0,ended=false;
@@ -404,6 +430,9 @@ function state(t,cls){ $('#livestate').textContent=t; const o=$('#orb');
   o.className='orb'+(cls?' '+cls:''); }
 
 $('#begin').onclick=async()=>{
+  if(PARENT_ID && SESSION){                       // the form was filled from a session: continue it
+    return openSession(SESSION, true);
+  }
   const btn=$('#begin'); btn.disabled=true; btn.textContent='Connecting…';
   $('#setup-err').classList.add('hidden');
   CHILD=$('#child').value.trim()||'you'; PARENT=$('#parent').value.trim()||'your parent';
@@ -419,9 +448,10 @@ $('#begin').onclick=async()=>{
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
-    PARENT_ID=r.parent_id; TOKEN=VISITOR; DAY=0; remember();
+    PARENT_ID=r.parent_id; SESSION=r.session; TOKEN=r.session; DAY=0;
+    remember(); showSession();
     $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
-    $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
+    $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would — this is your AI assistant calling them.`;
     $('#call').scrollIntoView({behavior:'smooth'});
     await startVoice();
   }catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden'); }
@@ -580,11 +610,14 @@ async function loadMine(){
     $('#personas').innerHTML=ps.map(p=>{
       const mem=p.remembers?`remembers ${p.remembers} thing${p.remembers===1?'':'s'}`:'nothing recorded yet';
       const days=p.days?`${p.days} morning${p.days===1?'':'s'} spoken · ${mem}`:'not spoken to yet';
-      return `<li><p class="who">${esc(p.name)}<small>${esc(days)}</small></p>
-        <button class="go" data-pid="${p.parent_id}" data-name="${esc(p.name)}"
-          data-child="${esc(p.child)}" data-days="${p.days}">Continue</button></li>`;
+      return `<li><p class="who"><code data-code="${esc(p.session)}">${esc(p.session)}</code>
+          &nbsp;${esc(p.summary)}<small>${esc(p.language)} · ${esc(days)}</small></p>
+        <button class="go" data-code="${esc(p.session)}">Continue</button></li>`;
     }).join('');
-    $('#personas').querySelectorAll('button').forEach(b=>b.onclick=()=>resume(b.dataset));
+    $('#personas').querySelectorAll('button[data-code]').forEach(b=>
+      b.onclick=()=>openSession(b.dataset.code, true));
+    $('#personas').querySelectorAll('code[data-code]').forEach(c=>
+      c.onclick=()=>openSession(c.dataset.code, false));
     $('#resume').classList.remove('hidden');
   }catch(e){}
 }
@@ -603,20 +636,61 @@ $('#relation').dispatchEvent(new Event('input'));
 
 loadMine();
 
-async function resume(d){
-  PARENT_ID=+d.pid; TOKEN=VISITOR; PARENT=d.name; CHILD=d.child||'you'; DAY=+d.days||0;
-  remember();
+async function openSession(code, andCall){
+  let d;
+  try{ d=await api('/try/session/'+encodeURIComponent(code),null,'GET'); }
+  catch(e){ $('#code-err').textContent=e.message; $('#code-err').classList.remove('hidden'); return; }
+  // everything they typed comes back, so the form reads as they left it
+  $('#child').value=d.child_name||''; $('#parent').value=d.parent_name||'';
+  $('#relation').value=d.relation||''; $('#gender').value=d.gender||'';
+  genderTouched=true;                              // do not let the relation rule overwrite it
+  $('#child-native').value=d.child_name_native||''; $('#parent-native').value=d.parent_name_native||'';
+  $('#language').value=d.language||'hi-IN'; $('#conditions').value=d.conditions||'';
+  $('#notes').value=d.notes||'';
+  $('#med').value=(d.medications&&d.medications[0])
+    ? [d.medications[0].name, d.medications[0].when].filter(Boolean).join(', ') : '';
+
+  PARENT_ID=d.parent_id; SESSION=d.session; TOKEN=d.session; PARENT=d.parent_name;
+  CHILD=d.child_name||'you'; DAY=+d.days||0; remember(); showSession();
+
+  if(!andCall){
+    $('#code-err').classList.add('hidden');
+    $('#begin').textContent='🎙  Continue with '+(d.parent_name||'her');
+    $('#begin').scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
   $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
-  $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
+  $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would — this is your AI assistant calling them.`;
   $('#call').scrollIntoView({behavior:'smooth'});
   try{ await startVoice(); }
   catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
     $('#setup').classList.remove('hidden'); $('#call').classList.add('hidden'); }
 }
 
+function showSession(){
+  if(!SESSION) return;
+  $('#sessioncode').textContent=SESSION;
+  $('#sessionbar').classList.remove('hidden');
+}
+
+$('#codego').onclick=()=>{
+  const c=$('#codein').value.trim().toUpperCase();
+  if(c) openSession(c, false);
+};
+$('#codein').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#codego').click(); });
+$('#copycode').onclick=()=>{
+  navigator.clipboard&&navigator.clipboard.writeText(SESSION);
+  $('#copycode').textContent='copied'; setTimeout(()=>$('#copycode').textContent='copy',1500);
+};
+
 $('#again').onclick=()=>{
-  CALL=null; shown=0; DAY=0; PARENT_ID=null; TOKEN="";
+  CALL=null; shown=0; DAY=0; PARENT_ID=null; TOKEN=""; SESSION="";
   try{ localStorage.removeItem(SAVE) }catch(e){}
+  $('#sessionbar').classList.add('hidden');
+  $('#begin').textContent='🎙  Begin the morning call';
+  ['child','parent','relation','child-native','parent-native','conditions','notes','med']
+    .forEach(id=>{ const el=$('#'+id); if(el) el.value=''; });
+  genderTouched=false; $('#gender').value='';
   loadMine();
   $('#thread').innerHTML=''; $('#report').classList.add('hidden');
   $('#setup').classList.remove('hidden');
