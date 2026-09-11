@@ -137,6 +137,12 @@
   .resume{background:var(--panel2);border:1px dashed var(--gold);border-radius:14px;
     padding:18px 20px;margin:0 0 22px}
   .resume p{margin:0 0 14px;font-style:italic;color:var(--ink)}
+  .personas{list-style:none;margin:0;padding:0}
+  .personas li{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line2)}
+  .personas li:last-child{border-bottom:0}
+  .personas .who{flex:1;margin:0;font-family:system-ui,sans-serif;font-size:14.5px;color:var(--ink)}
+  .personas .who small{display:block;color:var(--dim);font-size:12.5px}
+  .personas button{padding:9px 16px;font-size:14px}
   .nextday{text-align:center;margin-top:30px;background:var(--panel);border:1px solid var(--line);
     border-radius:18px;padding:26px 24px;box-shadow:0 18px 40px -30px rgba(90,60,30,.4)}
   .nextday p{margin:0 0 18px;color:var(--dim);font-style:italic;font-size:17px}
@@ -211,9 +217,10 @@
         <textarea id="notes" placeholder="Lives alone in Cuttack, loves cricket, misses her grandchildren"></textarea>
       </div>
       <div class="resume hidden" id="resume">
-        <p id="resumecopy"></p>
-        <button class="go" id="resumebtn">🎙 &nbsp;Continue with her</button>
-        <div class="hint" style="margin-top:8px">or set up someone new below</div>
+        <div class="eyebrow" style="margin-bottom:10px">Your conversations</div>
+        <ul class="personas" id="personas"></ul>
+        <div class="hint" style="margin-top:12px">Only you can open these — they are tied to
+          this browser, not to any account. Or set up someone new below.</div>
       </div>
       <button class="go" id="begin">🎙 &nbsp;Begin the morning call</button>
       <div class="hint">You'll play her part, in your own voice. Your browser will ask for the microphone. Sahara speaks first.</div>
@@ -280,7 +287,17 @@
 const $=s=>document.querySelector(s);
 const PHONE_HZ=8000, FRAME=160;
 let CALL=null, PARENT_ID=null, CHILD="", PARENT="", DAY=0, TOKEN="";
-const SAVE='sahara_demo_persona';
+const SAVE='sahara_demo_persona', ME='sahara_demo_visitor';
+// An opaque id this browser keeps. It is the demo's whole notion of "you": everything you
+// create belongs to it, nothing else can read it, and it is what lets her still remember
+// you tomorrow. No account, no email, nothing that identifies a person.
+function visitorId(){
+  let v=null; try{ v=localStorage.getItem(ME) }catch(e){}
+  if(!v){ v=(crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)+Date.now());
+    try{ localStorage.setItem(ME,v) }catch(e){} }
+  return v;
+}
+const VISITOR=visitorId();
 function remember(){ try{ localStorage.setItem(SAVE, JSON.stringify(
   {PARENT_ID,TOKEN,CHILD,PARENT,DAY})) }catch(e){} }
 function recall(){ try{ return JSON.parse(localStorage.getItem(SAVE)||'null') }catch(e){ return null } }
@@ -384,13 +401,14 @@ $('#begin').onclick=async()=>{
   try{
     const r=await api('/try/start',{
       child_name:CHILD, parent_name:PARENT, relation:$('#relation').value.trim()||'parent',
+      visitor:VISITOR,
       child_name_native:$('#child-native').value.trim(),
       parent_name_native:$('#parent-native').value.trim(),
       gender:$('#gender').value,
       language:$('#language').value, notes:$('#notes').value.trim(),
       medications: med?[{name:med.split(',')[0].trim(), when:(med.split(',')[1]||'daily').trim()}]:[]
     });
-    PARENT_ID=r.parent_id; TOKEN=r.token; DAY=0; remember();
+    PARENT_ID=r.parent_id; TOKEN=VISITOR; DAY=0; remember();
     $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
     $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
     $('#call').scrollIntoView({behavior:'smooth'});
@@ -543,31 +561,39 @@ $('#callagain').onclick=async()=>{
   finally{ b.disabled=false; b.textContent="🎙  Take tomorrow's call"; }
 };
 
-(function offerResume(){
-  const sv=recall();
-  if(!sv || !sv.PARENT_ID) return;
-  PARENT_ID=sv.PARENT_ID; TOKEN=sv.TOKEN; CHILD=sv.CHILD; PARENT=sv.PARENT; DAY=sv.DAY||0;
-  $('#resumecopy').innerHTML='You spoke with <b style="font-style:normal">'+esc(PARENT)+
-    '</b> for '+DAY+' morning'+(DAY===1?'':'s')+'. She still remembers.';
-  $('#resume').classList.remove('hidden');
-})();
-
-$('#resumebtn').onclick=async()=>{
-  const b=$('#resumebtn'); b.disabled=true; b.textContent='Connecting…';
+async function loadMine(){
   try{
-    $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
-    $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
-    $('#call').scrollIntoView({behavior:'smooth'});
-    await startVoice();
-  }catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
-    $('#setup').classList.remove('hidden'); }
-  finally{ b.disabled=false; b.textContent='🎙  Continue with her'; }
-};
+    const r=await api('/try/mine?visitor='+encodeURIComponent(VISITOR),null,'GET');
+    const ps=r.personas||[];
+    if(!ps.length){ $('#resume').classList.add('hidden'); return; }
+    $('#personas').innerHTML=ps.map(p=>{
+      const mem=p.remembers?`remembers ${p.remembers} thing${p.remembers===1?'':'s'}`:'nothing recorded yet';
+      const days=p.days?`${p.days} morning${p.days===1?'':'s'} spoken · ${mem}`:'not spoken to yet';
+      return `<li><p class="who">${esc(p.name)}<small>${esc(days)}</small></p>
+        <button class="go" data-pid="${p.parent_id}" data-name="${esc(p.name)}"
+          data-child="${esc(p.child)}" data-days="${p.days}">Continue</button></li>`;
+    }).join('');
+    $('#personas').querySelectorAll('button').forEach(b=>b.onclick=()=>resume(b.dataset));
+    $('#resume').classList.remove('hidden');
+  }catch(e){}
+}
+loadMine();
+
+async function resume(d){
+  PARENT_ID=+d.pid; TOKEN=VISITOR; PARENT=d.name; CHILD=d.child||'you'; DAY=+d.days||0;
+  remember();
+  $('#setup').classList.add('hidden'); $('#call').classList.remove('hidden');
+  $('#callwho').textContent=`You are ${CHILD}. Speak as ${PARENT} would.`;
+  $('#call').scrollIntoView({behavior:'smooth'});
+  try{ await startVoice(); }
+  catch(e){ $('#setup-err').textContent=e.message; $('#setup-err').classList.remove('hidden');
+    $('#setup').classList.remove('hidden'); $('#call').classList.add('hidden'); }
+}
 
 $('#again').onclick=()=>{
   CALL=null; shown=0; DAY=0; PARENT_ID=null; TOKEN="";
   try{ localStorage.removeItem(SAVE) }catch(e){}
-  $('#resume').classList.add('hidden');
+  loadMine();
   $('#thread').innerHTML=''; $('#report').classList.add('hidden');
   $('#setup').classList.remove('hidden');
   window.scrollTo({top:0,behavior:'smooth'});

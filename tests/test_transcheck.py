@@ -151,6 +151,43 @@ def test_indic_grammar_pins_both_speakers_genders():
     assert "not recorded" in grammar_note(unknown)
 
 
+def test_a_visitor_owns_their_conversations_and_no_one_elses(monkeypatch):
+    """The demo's identity is an opaque per-browser id. Everything you create belongs to it;
+    another visitor on the same shared link can neither list nor open it."""
+    from sahara import config
+    monkeypatch.setattr(config, "DEMO", True)
+
+    me, you = "visitor-" + "a" * 20, "visitor-" + "b" * 20
+
+    mine = client.post("/api/try/start", json={"visitor": me, "child_name": "Ravi",
+                                               "parent_name": "Sushila", "relation": "mother",
+                                               "language": "hi-IN"}).json()
+    yours = client.post("/api/try/start", json={"visitor": you, "child_name": "Meera",
+                                                "parent_name": "Kamala", "relation": "mother",
+                                                "language": "ta-IN"}).json()
+
+    # each of us sees only our own
+    mine_list = client.get(f"/api/try/mine?visitor={me}").json()["personas"]
+    assert [p["name"] for p in mine_list] == ["Sushila"]
+    yours_list = client.get(f"/api/try/mine?visitor={you}").json()["personas"]
+    assert [p["name"] for p in yours_list] == ["Kamala"]
+    assert client.get("/api/try/mine").json()["personas"] == []      # a stranger sees nothing
+
+    # I can call my persona; you cannot
+    cid = client.post(f"/api/try/{mine['parent_id']}/voice-call?token={me}").json()["call_id"]
+    assert client.post(f"/api/try/{mine['parent_id']}/voice-call?token={you}").status_code == 403
+    assert client.get(f"/api/try/{cid}/report?token={me}").status_code == 200
+    assert client.get(f"/api/try/{cid}/report?token={you}").status_code == 403
+    assert client.get(f"/api/try/{cid}/report").status_code == 403
+
+    # and my second persona joins my list, so I can choose between them
+    client.post("/api/try/start", json={"visitor": me, "child_name": "Ravi",
+                                        "parent_name": "Gopal", "relation": "father",
+                                        "language": "hi-IN", "gender": "male"})
+    assert {p["name"] for p in client.get(f"/api/try/mine?visitor={me}").json()["personas"]} \
+        == {"Sushila", "Gopal"}
+
+
 def test_demo_conversations_are_private_to_the_visitor(monkeypatch):
     """A public link means strangers share one server. One visitor must not be able to
     read another's conversation by guessing a call id — the demo holds real speech."""

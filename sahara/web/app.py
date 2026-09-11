@@ -218,6 +218,7 @@ def mic_call(pid: int):
 
 
 class TryStartIn(BaseModel):
+    visitor: str = ""                     # opaque per-browser id; everything you make is yours
     child_name: str                       # "you are ___"
     child_name_native: str = ""           # how she says it, in her script
     parent_name: str                      # "...health updates of ___"
@@ -243,6 +244,7 @@ async def try_start(body: TryStartIn):
         p = Parent(family_id=fam.id, name=body.parent_name.strip() or "your parent",
                    name_native=body.parent_name_native.strip(),
                    gender=body.gender.strip().lower(),
+                   demo_visitor=body.visitor.strip(),
                    phone="+demo", language=body.language, consent=True, consent_at=utcnow(),
                    medications=json.dumps(body.medications), notes=note)
         s.add(p); s.commit(); s.refresh(p)
@@ -252,6 +254,29 @@ async def try_start(body: TryStartIn):
     # opens the row, and the browser streams audio to it over the same bridge a phone uses.
     return {"parent_id": p.id, "name": p.name, "language": p.language,
             "token": demo_token(p.id)}
+
+
+@app.get("/api/try/mine")
+def try_mine(visitor: str = ""):
+    """Every conversation this visitor has started, newest first, so they can continue one
+    or begin someone new."""
+    _demo_only()
+    if not visitor or len(visitor) < 16:
+        return {"personas": []}
+    out = []
+    with session() as s:
+        parents = s.exec(select(Parent).where(Parent.demo_visitor == visitor)).all()
+        for p in sorted(parents, key=lambda x: x.id, reverse=True)[:8]:
+            cs = s.exec(select(Call).where(Call.parent_id == p.id)).all()
+            spoken = [c for c in cs if (c.turns() or [])]
+            fam = s.get(Family, p.family_id)
+            out.append({"parent_id": p.id, "name": p.name, "language": p.language,
+                        "child": fam.child_name if fam else "", "days": len(spoken),
+                        "last": max((c.created_at for c in cs), default=p.created_at).isoformat()})
+    for row in out:
+        row["remembers"] = len([n for n in memory.graph(row["parent_id"])["nodes"]
+                                if n.get("source_call_id")])
+    return {"personas": out}
 
 
 class TrySayIn(BaseModel):
@@ -277,20 +302,29 @@ DEMO_KEEP_DAYS = int(os.environ.get("SAHARA_DEMO_KEEP_DAYS", "7"))
 
 
 def demo_token(pid: int) -> str:
-    """An unguessable handle for one visitor's persona. Two strangers sharing a link must
-    not be able to read each other's conversations by guessing a call id — the demo holds
-    real speech, and confidentiality is the product's whole premise. Derived, so it needs
-    no column and survives restarts."""
+    """Kept for the earlier per-persona links; ownership is now by visitor (below)."""
     import hashlib
     import hmac
     secret = (config.OPERATOR_TOKEN or "sahara-demo").encode()
     return hmac.new(secret, f"parent:{pid}".encode(), hashlib.sha256).hexdigest()[:20]
 
 
-def _check_demo_token(pid: int, token: str | None):
+def _owned_parent(pid: int, visitor: str) -> Parent:
+    """A visitor id is the demo's identity: an opaque handle the browser keeps. Everything
+    a person creates belongs to it, and nothing else can be read or continued. Two
+    strangers on one shared link never see each other's conversations."""
     import secrets as _s
-    if not token or not _s.compare_digest(token, demo_token(pid)):
+    if not visitor or len(visitor) < 16:
+        raise HTTPException(403, "who are you? start a conversation first")
+    with session() as s:
+        p = s.get(Parent, pid)
+    if p is None:
+        raise HTTPException(404, "no such persona")
+    # legacy per-persona token still opens the persona that predates visitor ids
+    if not (p.demo_visitor and _s.compare_digest(p.demo_visitor, visitor)) \
+            and not _s.compare_digest(visitor, demo_token(pid)):
         raise HTTPException(403, "this conversation belongs to someone else")
+    return p
 
 
 def _purge_old_demo_data():
@@ -334,7 +368,7 @@ def _demo_budget():
 def try_voice_call(pid: int, token: str = ""):
     """A call row for the demo's browser microphone — no operator token, but budgeted
     and scoped to the visitor who created this persona."""
-    _demo_only(); _check_demo_token(pid, token); _demo_budget()
+    _demo_only(); _owned_parent(pid, token); _demo_budget()
     with session() as s:
         parent = s.get(Parent, pid)
         if parent is None or not parent.active:
@@ -355,7 +389,7 @@ def try_report(call_id: int, token: str = ""):
         if c is None:
             raise HTTPException(404, "no such call")
         pid = c.parent_id
-    _check_demo_token(pid, token)
+    _owned_parent(pid, token)
     return {**get_call_public(call_id), "memory": memory.graph(pid),
             "callback": memory.callback(pid)}
 
